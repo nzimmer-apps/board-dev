@@ -9,6 +9,7 @@ import type { Item, TagColors } from './supabase';
 import { lines, progress, toggle } from './checklist';
 
 import { SNOOZE_CHOICES, snoozeLabel, snoozeUntil } from './snooze';
+import ShareDialog from './ShareDialog';
 
 export function fmtDue(it: Pick<Item, 'due_at' | 'all_day'>) {
   if (!it.due_at) return '';
@@ -60,7 +61,7 @@ const Linked = ({ text }: { text: string }) => (
   )}</>
 );
 
-function Body({ text, onToggle }: { text: string; onToggle?: (line: number) => void }) {
+export function Body({ text, onToggle }: { text: string; onToggle?: (line: number) => void }) {
   const all = lines(text);
   if (!all.some((l) => l.check)) return <p className="body"><Linked text={text} /></p>;
   const p = progress(text)!;
@@ -123,9 +124,14 @@ interface Props {
   archived?: boolean;
   /** Adds a new note (used to move one date of a repeating note). */
   onInsert?: (row: Partial<Item>) => Promise<boolean>;
+  /** A note someone else shared with me: who it is from, and whether I may change it. */
+  shared?: { from: string; canEdit: boolean };
 }
 
-export default function Card({ item, onUpdate, onRemove, onTag, colors, archived, onInsert }: Props) {
+export default function Card({ item, onUpdate, onRemove, onTag, colors, archived, onInsert, shared }: Props) {
+  const [sharing, setSharing] = useState(false);
+  const mine = !shared;
+  const canEdit = mine || shared.canEdit;
   const [editing, setEditing] = useState(false);
   const [zoom, setZoom] = useState<string | null>(null);
   const [body, setBody] = useState(item.body);
@@ -141,7 +147,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   // A repeating note shows its next occurrence, not the first one it was created with.
   const shownDue = effectiveDue(item);
   const overdue = shownDue && !item.done && new Date(shownDue) < new Date();
-  const passed = !archived && hasPassed(item);
+  const passed = !archived && mine && hasPassed(item);
   const created = new Date(item.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
   function openEdit() {
@@ -185,11 +191,20 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   return (
     <article className={cls} style={tint ? { borderLeftColor: tint, borderLeftWidth: 3 } : undefined}>
       <div className="meta">
-        <span>{created}{item.source !== 'app' ? ` · ${item.source}` : ''}</span>
+        <span>{created}{item.source !== 'app' ? ` · ${item.source}` : ''}{shared ? ` · from ${shared.from}${shared.canEdit ? '' : ' (view only)'}` : ''}</span>
         {archived ? (
           <span className="actions">
             <button title="Put back on the board" onClick={() => onUpdate(item.id, { archived: false })}>↩ Restore</button>
             <button title="Delete permanently" className="danger" onClick={() => confirm('Delete this note permanently? This cannot be undone.') && onRemove(item.id)}>Delete</button>
+          </span>
+        ) : shared ? (
+          <span className="actions">
+            {item.due_at && canEdit && (
+              <button title={item.repeat ? 'Done for this time: skip to the next one' : item.done ? 'Mark not done' : 'Mark done'} onClick={tick}>
+                {item.repeat ? '⏭' : item.done ? '↺' : '✓'}
+              </button>
+            )}
+            {canEdit && <button title="Edit" onClick={openEdit}>✎</button>}
           </span>
         ) : (
           <span className="actions">
@@ -208,6 +223,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
               {item.pinned ? '★' : '☆'}
             </button>
             <button title="Edit" onClick={openEdit}>✎</button>
+            <button title="Share with someone" onClick={() => setSharing(true)}>👥</button>
             <button title="Archive" onClick={() => onUpdate(item.id, { archived: true })}>⌫</button>
           </span>
         )}
@@ -243,15 +259,16 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
           <div className="row">
             <button className="primary" onClick={save}>Save</button>
             <button onClick={() => setEditing(false)}>Cancel</button>
-            <button className="danger" onClick={() => confirm('Delete permanently?') && onRemove(item.id)}>Delete</button>
+            {mine && <button className="danger" onClick={() => confirm('Delete permanently?') && onRemove(item.id)}>Delete</button>}
           </div>
         </div>
       ) : (
-        item.body && <Body text={item.body} onToggle={archived ? undefined : (i) => onUpdate(item.id, { body: toggle(item.body, i) })} />
+        item.body && <Body text={item.body} onToggle={archived || !canEdit ? undefined : (i) => onUpdate(item.id, { body: toggle(item.body, i) })} />
       )}
       {item.image_path && <Picture path={item.image_path} onOpen={setZoom} />}
       {item.file_path && <Attachment item={item} />}
       {(item.image_path || item.file_type === 'pdf') && !editing && <FoundText text={item.ocr_text} label="TEXT" />}
+      {sharing && <ShareDialog target={{ item_id: item.id }} label="this note" onClose={() => setSharing(false)} />}
       {zoom && <div className="lightbox" onClick={() => setZoom(null)}><img src={zoom} alt="" /></div>}
       {item.location && !editing && (
         <a className="place" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.location)}`} target="_blank" rel="noreferrer">
@@ -268,7 +285,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
             : <span className="muted"> · 🔕</span>}
         </div>
       )}
-      {item.snoozed_until && !item.done && !archived && new Date(item.snoozed_until).getTime() > Date.now() && (
+      {item.snoozed_until && !item.done && !archived && mine && new Date(item.snoozed_until).getTime() > Date.now() && (
         <div className="snoozed muted">
           ⏰ Snoozed until {snoozeLabel(item.snoozed_until)}
           <button className="small" title="Cancel the snooze" onClick={() => onUpdate(item.id, { snoozed_until: null })}>Cancel</button>

@@ -17,9 +17,12 @@ import { applyTheme, getTheme, type ThemeId } from './theme';
 import { repeatLabel } from './repeat';
 import { syncPushSchedule } from './push';
 import { enqueue, flushQueue, loadQueue, isNetworkError, patchQueued } from './offlineQueue';
+import Shared, { type SharedItem } from './Shared';
+import SharedLink from './SharedLink';
+import { SHARE_COLS, tokenFromSearch, type Share } from './share';
 
-type View = 'board' | 'calendar' | 'archive' | 'tags' | 'more';
-const VIEWS: View[] = ['board', 'calendar', 'archive', 'tags', 'more'];
+type View = 'board' | 'calendar' | 'archive' | 'tags' | 'shared' | 'more';
+const VIEWS: View[] = ['board', 'calendar', 'archive', 'tags', 'shared', 'more'];
 const fromHash = (): View => VIEWS.find((v) => location.hash === `#${v}`) ?? 'board';
 const asItems = (d: unknown) => (d ?? []) as Item[];
 
@@ -31,6 +34,8 @@ const asPending = (r: Record<string, unknown>, at = new Date().toISOString()): I
   ...(r as Partial<Item>),
 } as Item);
 const pendingItems = () => loadQueue(localStorage).map((r) => asPending(r, String(r.created_at ?? new Date().toISOString())));
+// Opened from a share link: show that instead of the app (no sign-in needed).
+const LINK_TOKEN = typeof location !== 'undefined' ? tokenFromSearch(location.search) : null;
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 export default function App() {
@@ -45,6 +50,11 @@ export default function App() {
   const [prompts, setPrompts] = useState<Proposal[]>([]);
   const [jump, setJump] = useState<{ tag: string; n: number } | null>(null);
   const shareHandled = useRef(false);
+  const [shares, setShares] = useState<Share[]>([]);
+  const [sharedItems, setSharedItems] = useState<SharedItem[] | null>(null);
+  // Notes others shared with me are readable too, so my own lists ask for my notes only.
+  const uidRef = useRef('');
+  uidRef.current = session?.user.id ?? '';
 
   useEffect(() => { applyTheme(theme); }, [theme]);
 
@@ -65,7 +75,7 @@ export default function App() {
   viewRef.current = view;
 
   const loadArchived = useCallback(async () => {
-    const { data, error } = await supabase.from('items').select(ITEM_COLS).eq('archived', true).order('created_at', { ascending: false }).limit(1000);
+    const { data, error } = await supabase.from('items').select(ITEM_COLS).eq('user_id', uidRef.current).eq('archived', true).order('created_at', { ascending: false }).limit(1000);
     if (error) flash(error.message);
     else setArchived(asItems(data));
   }, [flash]);
@@ -74,6 +84,7 @@ export default function App() {
     const { data, error } = await supabase
       .from('items')
       .select(ITEM_COLS)
+      .eq('user_id', uidRef.current)
       .eq('archived', false)
       .order('created_at', { ascending: false })
       .limit(1000);
@@ -87,6 +98,18 @@ export default function App() {
     if (viewRef.current === 'archive') loadArchived();
   }, [flash, loadArchived]);
 
+  // Shares: mine (to manage) and other people's to me, plus the notes those cover.
+  const loadShared = useCallback(async () => {
+    const [{ data: s }, { data: its, error }] = await Promise.all([
+      supabase.from('shares').select(SHARE_COLS),
+      supabase.from('items').select(ITEM_COLS + ',user_id').neq('user_id', uidRef.current).eq('archived', false)
+        .order('due_at', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false }).limit(1000),
+    ]);
+    if (s) setShares(s as Share[]);
+    if (error) { if (!isNetworkError(error.message)) flash(error.message); }
+    else setSharedItems((its ?? []) as unknown as SharedItem[]);
+  }, [flash]);
+
   const loadColors = useCallback(async () => {
     const { data } = await supabase.from('categories').select('name,color');
     if (data) setColors(Object.fromEntries(data.filter((c) => c.color).map((c) => [c.name, c.color as string])));
@@ -97,18 +120,24 @@ export default function App() {
     if (!session) return;
     load();
     loadColors();
+    loadShared();
     const ch = supabase
       .channel('items')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, (p) => {
+        const owner = ((p.new ?? p.old) as { user_id?: string } | null)?.user_id;
+        if (!owner || owner === uidRef.current) load();
+        if (owner !== uidRef.current) loadShared();
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => loadColors())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shares' }, () => loadShared())
       .subscribe();
-    const onFocus = () => load();
+    const onFocus = () => { load(); loadShared(); };
     window.addEventListener('focus', onFocus);
     return () => {
       supabase.removeChannel(ch);
       window.removeEventListener('focus', onFocus);
     };
-  }, [session, load, loadColors]);
+  }, [session, load, loadColors, loadShared]);
 
   useEffect(() => { if (session && view === 'archive') loadArchived(); }, [session, view, loadArchived]);
 
@@ -141,6 +170,20 @@ export default function App() {
     },
     [flash, load],
   );
+
+  // Changes to a note someone shared with me (the database checks I'm allowed to edit it).
+  const updateShared = useCallback(async (id: string, patch: Partial<Item>) => {
+    setSharedItems((xs) => (xs ? xs.map((x) => (x.id === id ? { ...x, ...patch } : x)) : xs));
+    const { data, error } = await supabase.from('items').update(patch).eq('id', id).select('id');
+    if (error || !data?.length) { flash(error?.message ?? "You can't change this note any more."); loadShared(); }
+  }, [flash, loadShared]);
+
+  const leaveShare = useCallback(async (s: Share) => {
+    const { error } = await supabase.from('shares').delete().eq('id', s.id);
+    if (error) flash(error.message);
+    else flash(`Left ${s.tag ? `#${s.tag}` : 'the note'}`);
+    loadShared();
+  }, [flash, loadShared]);
 
   // A saved link: fetch its title, and if it is an event page offer to put it on the calendar.
   const enrichLink = useCallback(
@@ -465,6 +508,7 @@ export default function App() {
         <p className="note">Not configured yet: set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.</p>
       </div>
     );
+  if (LINK_TOKEN) return <SharedLink token={LINK_TOKEN} />;
   if (session === undefined) return <div className="auth muted">Loading…</div>;
   if (!session) return <Auth />;
 
@@ -481,6 +525,7 @@ export default function App() {
           {tab('calendar', 'Calendar')}
           {tab('archive', 'Archive')}
           {tab('tags', 'Tags')}
+          {tab('shared', 'Shared')}
           {tab('more', 'More')}
         </nav>
         <button className="icon" title="Colour theme" aria-expanded={themeOpen} onClick={() => setThemeOpen((o) => !o)}>🎨</button>
@@ -498,6 +543,9 @@ export default function App() {
       {view === 'tags' && (
         <Tags items={items} colors={colors} onRename={renameTag} onDelete={deleteTag} onColor={colorTag}
           onOpen={(t) => { setJump({ tag: t, n: Date.now() }); setView('board'); }} />
+      )}
+      {view === 'shared' && (
+        <Shared items={sharedItems} shares={shares} myEmail={session.user.email ?? ''} colors={colors} onUpdate={updateShared} onLeave={leaveShare} />
       )}
       {view === 'more' && <More theme={theme} onTheme={setTheme} email={session.user.email ?? ''} flash={flash} onImported={load} items={items} />}
       {prompts[0] && (

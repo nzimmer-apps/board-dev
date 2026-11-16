@@ -56,6 +56,9 @@ no-newline file through cmd instead: `cmd /c "gh secret set NAME -R nzimmer-apps
   anywhere, so pages behind a login (many Facebook events) come back without a date and the app asks for one.
 - Archive screen, Tags screen (`rename_tag` / `delete_tag` SQL functions, colours in `categories`), themes
   (`web/src/theme.ts` + `features.css`), export (`web/src/export.ts`).
+- Sharing: `shares` table (one note or one tag, with a person by confirmed email or a read-only secret link).
+  RLS on `items` / storage reads it through `share_access()`; people's own lists filter `user_id` so shared notes only
+  show under the Shared tab. Links open through the `shared` edge function (deploy with verify_jwt off).
 - The first three migrations here were applied to the dev project through the Supabase dashboard API, so its
   migration history uses different version numbers than the files. They are idempotent; `supabase db push` may ask
   to re-apply them, which is safe.

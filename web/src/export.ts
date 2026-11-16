@@ -12,8 +12,10 @@ export const FORMATS: { id: Format; name: string; hint: string }[] = [
 
 export async function fetchAll(): Promise<Item[]> {
   const out: Item[] = [];
+  // Only my own notes: ones others shared with me aren't part of my backup.
+  const uid = (await supabase.auth.getSession()).data.session?.user.id ?? '';
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from('items').select(ITEM_COLS).order('created_at', { ascending: true }).range(from, from + 999);
+    const { data, error } = await supabase.from('items').select(ITEM_COLS).eq('user_id', uid).order('created_at', { ascending: true }).range(from, from + 999);
     if (error) throw error;
     out.push(...((data ?? []) as unknown as Item[]));
     if (!data || data.length < 1000) return out;

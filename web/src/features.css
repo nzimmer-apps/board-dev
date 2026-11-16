@@ -126,3 +126,15 @@ code { font-family: var(--mono); background: var(--accent-dim); padding: 0 4px; 
 }
 .switch-row { display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 6px 0; }
 .switch-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* sharing */
+.share-sheet input { width: 100%; }
+.share-sheet form.row { display: flex; gap: 8px; }
+.share-sheet .row { display: flex; gap: 8px; align-items: center; }
+.share-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.share-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.share-list .who { font-weight: 600; overflow-wrap: anywhere; flex: 1 1 160px; }
+.shared-from { margin-bottom: 24px; display: grid; gap: 10px; }
+.shared-from h3 { margin: 0; font-size: 14px; color: var(--muted); }
+.shared-link main { padding: 0 16px 32px; }
+.shared-link .top a { margin-left: auto; color: var(--accent); }

@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import type { Item, TagColors } from './supabase';
 import { COMMON_TAGS, TAG_COLORS } from './theme';
+import ShareDialog from './ShareDialog';
 
 interface Props {
   items: Item[];
@@ -22,6 +23,7 @@ export default function Tags({ items, colors, onRename, onDelete, onColor, onOpe
   const [palette, setPalette] = useState<string | null>(null);
   const [sort, setSort] = useState<'count' | 'name'>('count');
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState<string | null>(null);
 
   const tags = useMemo(() => {
     const m = new Map<string, number>();
@@ -83,6 +85,7 @@ export default function Tags({ items, colors, onRename, onDelete, onColor, onOpe
                 <button className="name" title="Show these notes" onClick={() => onOpen(t)}>#{t}</button>
                 <span className="muted small">{n} {n === 1 ? 'note' : 'notes'}</span>
                 <span className="acts">
+                  <button className="small" title="Share every note with this tag" onClick={() => setSharing(t)}>👥 Share</button>
                   <button className="small" onClick={() => { setEditing(t); setName(t); setMergeFrom(null); }}>Rename</button>
                   {tags.length > 1 && <button className="small" onClick={() => { setMergeFrom(t); setEditing(null); }}>Merge</button>}
                   <button className="small danger" disabled={busy}
@@ -104,6 +107,7 @@ export default function Tags({ items, colors, onRename, onDelete, onColor, onOpe
           </li>
         ))}
       </ul>
+      {sharing && <ShareDialog target={{ tag: sharing }} label={`#${sharing}`} onClose={() => setSharing(null)} />}
 
       <section className="suggest">
         <h2>Common tags</h2>
