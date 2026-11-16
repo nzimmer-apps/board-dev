@@ -152,7 +152,7 @@ export default function App() {
       const stamp = Date.now();
       const optimistic: Item[] = rows.map((r, n) => ({
         id: `tmp-${stamp}-${n}`, ...r, done: false, pinned: false, archived: false, created_at: new Date().toISOString(),
-        image_path: null, ocr_text: null, location: null, file_path: null, file_type: null, file_name: null,
+        image_path: null, ocr_text: null, location: null, file_path: null, file_type: null, file_name: null, snoozed_until: null,
       }));
       setItems((xs) => [...optimistic, ...xs]);
       const { data, error } = await supabase.from('items').insert(rows).select(ITEM_COLS);

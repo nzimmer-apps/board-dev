@@ -7,6 +7,8 @@ import { effectiveDue, nextOccurrence, repeatLabel, type Repeat } from './repeat
 import type { Item, TagColors } from './supabase';
 import { lines, progress, toggle } from './checklist';
 
+import { SNOOZE_CHOICES, snoozeLabel, snoozeUntil } from './snooze';
+
 export function fmtDue(it: Pick<Item, 'due_at' | 'all_day'>) {
   if (!it.due_at) return '';
   const d = new Date(it.due_at);
@@ -110,6 +112,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   const [place, setPlace] = useState(item.location ?? '');
   const [remind, setRemind] = useState<number[]>(item.remind_offsets ?? [0]);
   const [repeat, setRepeat] = useState<Repeat | null>(item.repeat);
+  const [snoozing, setSnoozing] = useState(false);
   // A repeating note shows its next occurrence, not the first one it was created with.
   const shownDue = effectiveDue(item);
   const overdue = shownDue && !item.done && new Date(shownDue) < new Date();
@@ -142,10 +145,10 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
 
   // Repeating: "done" means done for this time, so move on to the next occurrence.
   function tick() {
-    if (!item.repeat) return onUpdate(item.id, { done: !item.done });
+    if (!item.repeat) return onUpdate(item.id, { done: !item.done, snoozed_until: null });
     const cur = new Date(shownDue!);
     const next = nextOccurrence(new Date(item.due_at!), item.repeat, new Date(Math.max(Date.now(), cur.getTime()) + 60e3));
-    if (next) onUpdate(item.id, { due_at: next.toISOString() });
+    if (next) onUpdate(item.id, { due_at: next.toISOString(), snoozed_until: null });
   }
 
   const cls = ['card', item.pinned && 'pinned', item.done && 'done', item.tags.length && 'tagged', passed && 'passed'].filter(Boolean).join(' ');
@@ -167,6 +170,9 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
                 {item.repeat ? '⏭' : item.done ? '↺' : '✓'}
               </button>
             )}
+            {item.due_at && !item.done && (
+              <button title="Snooze: remind me again later" onClick={() => setSnoozing((v) => !v)}>⏰</button>
+            )}
             <button title={item.pinned ? 'Unpin' : 'Pin'} onClick={() => onUpdate(item.id, { pinned: !item.pinned })}>
               {item.pinned ? '★' : '☆'}
             </button>
@@ -175,6 +181,14 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
           </span>
         )}
       </div>
+      {snoozing && (
+        <div className="snooze-menu">
+          <span className="muted">Remind me again in</span>
+          {SNOOZE_CHOICES.map((c) => (
+            <button key={c.id} className="small" onClick={() => { onUpdate(item.id, { snoozed_until: snoozeUntil(c.id).toISOString() }); setSnoozing(false); }}>{c.label}</button>
+          ))}
+        </div>
+      )}
       {item.tags.length > 0 && (
         <div className="tags">
           {item.tags.map((t) => (
@@ -219,6 +233,12 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
           {(item.remind_offsets ?? []).length > 0
             ? <span className="muted"> · 🔔 {(item.remind_offsets ?? []).map(offsetLabel).join(', ')}</span>
             : <span className="muted"> · 🔕</span>}
+        </div>
+      )}
+      {item.snoozed_until && !item.done && !archived && new Date(item.snoozed_until).getTime() > Date.now() && (
+        <div className="snoozed muted">
+          ⏰ Snoozed until {snoozeLabel(item.snoozed_until)}
+          <button className="small" title="Cancel the snooze" onClick={() => onUpdate(item.id, { snoozed_until: null })}>Cancel</button>
         </div>
       )}
       {passed && !editing && (

@@ -40,20 +40,24 @@ export async function onShared(
 // ---------- Reminders ----------
 
 // One entry per (occurrence, chosen offset): fires at that occurrence's time minus the offset.
-interface Alert { i: Item; due: Date; t: number; off: number; key: string }
+interface Alert { i: Item; due: Date; t: number; off: number; key: string; snooze?: boolean }
 const alerts = (items: Item[], fromMs: number, toMs: number): Alert[] =>
   items
-    .filter((i) => i.due_at && !i.done && !i.archived)
-    .flatMap((i) => {
+    .filter((i) => (i.due_at || i.snoozed_until) && !i.done && !i.archived)
+    .flatMap((i): Alert[] => {
+      // A snooze is one extra alert at the chosen time.
+      const snz = i.snoozed_until ? new Date(i.snoozed_until) : null;
+      const extra: Alert[] = snz ? [{ i, due: snz, t: snz.getTime(), off: 0, key: `${i.id}:snooze:${snz.getTime()}`, snooze: true }] : [];
+      if (!i.due_at) return extra;
       const offs = i.remind_offsets ?? [0];
       const lead = Math.max(0, ...offs) * 60e3;
       // Repeating items: every occurrence whose alerts could land in the window.
       const dues = i.repeat
         ? occurrences(new Date(i.due_at!), i.repeat, new Date(fromMs), new Date(toMs + lead), 80)
         : [new Date(i.due_at!)];
-      return dues.flatMap((due) =>
+      return [...extra, ...dues.flatMap((due) =>
         offs.map((off) => ({ i, due, t: due.getTime() - off * 60e3, off, key: `${i.id}:${off}:${due.getTime()}` })),
-      );
+      )];
     })
     .filter(({ t }) => t > fromMs && t < toMs)
     .sort((a, b) => a.t - b.t);
@@ -68,7 +72,7 @@ const when = (a: Alert) => {
   return 'at ' + d.toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
 
-const title = (a: Alert) => `${label(a.i)} ${when(a)}`;
+const title = (a: Alert) => a.snooze ? `⏰ Snoozed ${label(a.i).toLowerCase()}` : `${label(a.i)} ${when(a)}`;
 const text = (i: Item) => (i.body.split('\n')[0] || i.file_name || 'Image note').slice(0, 120);
 
 // Stable 31-bit int from the uuid, required by Android notification ids.
@@ -79,6 +83,24 @@ const notifId = (id: string) => {
 };
 
 let lastAndroidSig = '';
+let androidActionsReady = false;
+
+/** Android: "Snooze 10 min" / "Snooze 1 hr" buttons on every reminder. */
+async function androidSnoozeButtons() {
+  if (androidActionsReady) return;
+  androidActionsReady = true;
+  const { LocalNotifications } = await import('@capacitor/local-notifications');
+  await LocalNotifications.registerActionTypes({
+    types: [{ id: 'board-alert', actions: [{ id: '10m', title: 'Snooze 10 min' }, { id: '1h', title: 'Snooze 1 hr' }] }],
+  });
+  await LocalNotifications.addListener('localNotificationActionPerformed', async ({ actionId, notification }) => {
+    const itemId = notification.extra?.itemId as string | undefined;
+    if (!itemId || (actionId !== '10m' && actionId !== '1h')) return;
+    const { supabase } = await import('./supabase');
+    const { snoozeUntil } = await import('./snooze');
+    await supabase.from('items').update({ snoozed_until: snoozeUntil(actionId).toISOString() }).eq('id', itemId);
+  });
+}
 
 /** Android: (re)schedule OS notifications for the next 30 days of dated items. */
 async function syncAndroid(items: Item[]) {
@@ -91,6 +113,7 @@ async function syncAndroid(items: Item[]) {
   if (perm.display === 'prompt' || perm.display === 'prompt-with-rationale')
     perm = await LocalNotifications.requestPermissions();
   if (perm.display !== 'granted') return;
+  await androidSnoozeButtons().catch((e) => console.warn('snooze buttons', e));
   const pending = await LocalNotifications.getPending();
   if (pending.notifications.length) await LocalNotifications.cancel({ notifications: pending.notifications });
   if (!next.length) return;
@@ -101,6 +124,7 @@ async function syncAndroid(items: Item[]) {
       body: text(a.i),
       schedule: { at: new Date(a.t), allowWhileIdle: true },
       extra: { itemId: a.i.id },
+      actionTypeId: 'board-alert',
     })),
   });
 }
