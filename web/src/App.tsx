@@ -413,7 +413,7 @@ export default function App() {
         <Tags items={items} colors={colors} onRename={renameTag} onDelete={deleteTag} onColor={colorTag}
           onOpen={(t) => { setJump({ tag: t, n: Date.now() }); setView('board'); }} />
       )}
-      {view === 'more' && <More theme={theme} onTheme={setTheme} email={session.user.email ?? ''} flash={flash} />}
+      {view === 'more' && <More theme={theme} onTheme={setTheme} email={session.user.email ?? ''} flash={flash} onImported={load} />}
       {prompts[0] && (
         <EventPrompt
           key={prompts[0].itemId}
