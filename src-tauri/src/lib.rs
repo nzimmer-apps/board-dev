@@ -1,3 +1,4 @@
+use tauri_plugin_autostart::MacosLauncher;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -19,6 +20,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        // Started by Windows at sign-in with --hidden: stay in the tray so reminders keep firing.
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Open Board Dev", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -39,6 +42,10 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            // The window starts invisible (tauri.conf.json); show it unless Windows launched us at sign-in.
+            if !std::env::args().any(|a| a == "--hidden") {
+                show_main(app.handle());
+            }
             Ok(())
         })
         // Closing the window hides it to the tray so reminders and the hotkey keep working.

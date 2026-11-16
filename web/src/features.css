@@ -124,3 +124,5 @@ code { font-family: var(--mono); background: var(--accent-dim); padding: 0 4px; 
   background: var(--panel); color: var(--warn); border: 1px solid var(--warn);
   padding: 6px 12px; border-radius: 999px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap;
 }
+.switch-row { display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 6px 0; }
+.switch-row input { width: 18px; height: 18px; accent-color: var(--accent); }

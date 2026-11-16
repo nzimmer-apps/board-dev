@@ -15,6 +15,7 @@ import { uploadFile, downloadFile, removeFile, pdfText, audioKind } from './file
 import { unfurl, looksLikeEventUrl } from './unfurl';
 import { applyTheme, getTheme, type ThemeId } from './theme';
 import { repeatLabel } from './repeat';
+import { syncPushSchedule } from './push';
 import { enqueue, flushQueue, loadQueue, isNetworkError, patchQueued } from './offlineQueue';
 
 type View = 'board' | 'calendar' | 'archive' | 'tags' | 'more';
@@ -408,7 +409,10 @@ export default function App() {
   }, [session, add, addFile, flash]);
 
   useEffect(() => {
-    if (session) syncReminders(items);
+    if (!session) return;
+    syncReminders(items);
+    // Items still waiting to be sent from offline have no server row yet; leave them out of the server's list.
+    if (!isOffline()) syncPushSchedule(items.filter((i) => !loadQueue(localStorage).some((q) => q.id === i.id)));
   }, [session, items]);
 
   // Android widget taps.
@@ -495,7 +499,7 @@ export default function App() {
         <Tags items={items} colors={colors} onRename={renameTag} onDelete={deleteTag} onColor={colorTag}
           onOpen={(t) => { setJump({ tag: t, n: Date.now() }); setView('board'); }} />
       )}
-      {view === 'more' && <More theme={theme} onTheme={setTheme} email={session.user.email ?? ''} flash={flash} onImported={load} />}
+      {view === 'more' && <More theme={theme} onTheme={setTheme} email={session.user.email ?? ''} flash={flash} onImported={load} items={items} />}
       {prompts[0] && (
         <EventPrompt
           key={prompts[0].itemId}

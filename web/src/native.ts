@@ -214,3 +214,29 @@ if (isTauri) {
     openUrl(a.href).catch(() => {});
   });
 }
+
+/** Windows app: start with Windows (hidden in the tray) so reminders keep coming after a restart. On by default. */
+export async function getAutostart(): Promise<boolean | null> {
+  if (!isTauri) return null;
+  const { isEnabled } = await import('@tauri-apps/plugin-autostart');
+  return isEnabled();
+}
+export async function setAutostart(on: boolean) {
+  if (!isTauri) return;
+  const { enable, disable } = await import('@tauri-apps/plugin-autostart');
+  await (on ? enable() : disable());
+}
+if (isTauri) {
+  try {
+    if (!localStorage.getItem('board-autostart-set')) {
+      setAutostart(true).then(() => localStorage.setItem('board-autostart-set', '1')).catch(() => {});
+    }
+  } catch { /* storage blocked: leave it */ }
+}
+
+/** Web push: the next 30 days of reminders, worked out here (in this device's time zone) for the server to send. */
+export function upcomingAlerts(items: Item[], now = Date.now()) {
+  return alerts(items, now, now + 30 * 864e5).slice(0, 250).map((a) => ({
+    key: `${a.key}@${a.t}`, fire_at: new Date(a.t).toISOString(), title: title(a), body: text(a.i), item_id: a.i.id,
+  }));
+}

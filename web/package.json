@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/parse.test.ts src/parse.repeat.test.ts src/repeat.test.ts src/checklist.test.ts src/snooze.test.ts src/parse.duration.test.ts src/repeat.skip.test.ts src/importer.test.ts src/offlineQueue.test.ts",
+    "test": "node --experimental-strip-types --test src/parse.test.ts src/parse.repeat.test.ts src/repeat.test.ts src/checklist.test.ts src/snooze.test.ts src/parse.duration.test.ts src/repeat.skip.test.ts src/importer.test.ts src/offlineQueue.test.ts src/webpush.test.ts",
     "build:ext": "esbuild src/parse.ts --bundle --format=iife --global-name=BoardParse --minify --outfile=../extension/parse.js"
   },
   "dependencies": {
@@ -15,6 +15,7 @@
     "@capacitor/local-notifications": "^7.0.7",
     "@supabase/supabase-js": "^2.45.0",
     "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-autostart": "^2.7.0",
     "@tauri-apps/plugin-global-shortcut": "^2.4.1",
     "@tauri-apps/plugin-notification": "^2.8.1",
     "@tauri-apps/plugin-opener": "^2.7.3",

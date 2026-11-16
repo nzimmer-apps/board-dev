@@ -2,8 +2,9 @@
 import { useState } from 'react';
 import { THEMES, type ThemeId } from './theme';
 import { FORMATS, build, fetchAll, save, type Format } from './export';
-import { supabase } from './supabase';
+import { supabase, type Item } from './supabase';
 import Import from './Import';
+import Notifications from './Notifications';
 
 export function ThemeSwatches({ theme, onTheme }: { theme: ThemeId; onTheme: (t: ThemeId) => void }) {
   return (
@@ -24,9 +25,10 @@ interface Props {
   email: string;
   flash: (m: string) => void;
   onImported: () => void;
+  items: Item[];
 }
 
-export default function More({ theme, onTheme, email, flash, onImported }: Props) {
+export default function More({ theme, onTheme, email, flash, onImported, items }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
 
   async function run(format: Format, how: 'save' | 'copy') {
@@ -55,6 +57,8 @@ export default function More({ theme, onTheme, email, flash, onImported }: Props
         <ThemeSwatches theme={theme} onTheme={onTheme} />
         <p className="muted small">Saved on this device. Each tag can have its own colour too, under Tags.</p>
       </section>
+
+      <Notifications items={items} flash={flash} />
 
       <section>
         <h2>Export</h2>
