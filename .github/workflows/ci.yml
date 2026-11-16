@@ -39,3 +39,21 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+
+  # Compiles the Windows (Tauri) app so Rust mistakes show up before merging.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - name: Build web assets
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Compile Windows app
+        run: cargo check --manifest-path src-tauri/Cargo.toml
