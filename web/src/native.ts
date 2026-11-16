@@ -8,28 +8,43 @@ export const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform()
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 export const isNativeApp = isAndroid || isTauri;
 
-interface Shared { text: string | null; image?: string | null } // image = base64 JPEG, already downscaled natively
+interface Shared {
+  text: string | null;
+  image?: string | null; // base64 JPEG, already downscaled natively
+  file?: string | null; // base64 PDF or audio, as shared
+  fileType?: string | null;
+  fileName?: string | null;
+  error?: string | null; // a file was shared but couldn't be passed on
+}
 interface ShareIntentPlugin {
   takePending(): Promise<Shared>;
   addListener(event: 'shared', cb: (d: Shared) => void): Promise<{ remove: () => void }>;
 }
 const ShareIntent = registerPlugin<ShareIntentPlugin>('ShareIntent');
 
-const b64ToBlob = (b64: string) => {
+const b64ToBlob = (b64: string, type = 'image/jpeg') => {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: 'image/jpeg' });
+  return new Blob([bytes], { type });
 };
 
-/** Text or images shared into the Android app from other apps' share sheet. */
+/** Text, images, PDFs or audio shared into the Android app from other apps' share sheet. */
 export async function onShared(
   onText: (text: string) => void,
   onImage: (img: Blob, caption: string) => void,
+  onFile?: (file: File, caption: string) => void,
+  onError?: (message: string) => void,
 ): Promise<() => void> {
   if (!isAndroid) return () => {};
   const handle = (d: Shared) => {
-    if (d.image) onImage(b64ToBlob(d.image), d.text ?? '');
+    if (d.file && d.fileType && onFile) {
+      const name = d.fileName || (d.fileType === 'application/pdf' ? 'Shared.pdf' : 'Shared audio');
+      // The caption is only what the user typed, not the file name some apps also put in the text.
+      const caption = d.text && d.text !== d.fileName ? d.text : '';
+      onFile(new File([b64ToBlob(d.file, d.fileType)], name, { type: d.fileType }), caption);
+    } else if (d.error) onError?.(`${d.fileName ?? 'That file'} ${d.error}`);
+    else if (d.image) onImage(b64ToBlob(d.image), d.text ?? '');
     else if (d.text) onText(d.text);
   };
   handle(await ShareIntent.takePending().catch(() => ({ text: null }) as Shared));

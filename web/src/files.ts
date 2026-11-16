@@ -37,7 +37,7 @@ export async function downloadFile(path: string): Promise<Blob | null> {
 /** "audio/webm;codecs=opus" → { type: "audio/webm", ext: "webm" } (the bucket only lists plain types). */
 export function audioKind(mime: string): { type: string; ext: string } {
   const type = (mime.split(';')[0] || 'audio/webm').trim().toLowerCase();
-  const ext = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/aac': 'aac' }[type];
+  const ext = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/aac': 'aac', 'audio/flac': 'flac', 'audio/opus': 'opus', 'audio/3gpp': '3gp', 'audio/amr': 'amr' }[type];
   return ext ? { type, ext } : { type: 'audio/webm', ext: 'webm' };
 }
 

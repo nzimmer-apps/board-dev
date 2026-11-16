@@ -1,6 +1,8 @@
 package com.nzimmerapps.board;
 
 import android.content.Intent;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
@@ -42,16 +44,52 @@ public class MainActivity extends BridgeActivity {
         if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return null;
         String text = textOf(intent);
         String image = null;
+        String file = null, fileName = null, error = null;
         String type = intent.getType();
-        if (type != null && type.startsWith("image/")) {
-            Uri uri;
-            if (Build.VERSION.SDK_INT >= 33) uri = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
-            else uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-            if (uri != null) image = encode(uri);
+        Uri uri;
+        if (Build.VERSION.SDK_INT >= 33) uri = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
+        else uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (type != null && uri != null) {
+            if (type.startsWith("image/")) {
+                image = encode(uri);
+            } else if (type.equals("application/pdf") || type.startsWith("audio/")) {
+                fileName = displayName(uri);
+                try {
+                    file = readAll(uri);
+                    if (file == null) error = "too big to share into Board (over 15 MB)";
+                } catch (Exception e) {
+                    error = "could not be read";
+                }
+            }
         }
         intent.setAction(Intent.ACTION_MAIN); // don't re-save on rotation/recreate
-        if (text == null && image == null) return null;
-        return new ShareIntentPlugin.Shared(text, image);
+        if (text == null && image == null && file == null && error == null) return null;
+        return new ShareIntentPlugin.Shared(text, image, file, file == null ? null : type, fileName, error);
+    }
+
+    private static final int MAX_FILE = 15 * 1024 * 1024;
+
+    /** The whole file as base64, or null when it is over MAX_FILE. */
+    private String readAll(Uri uri) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new Exception("no stream");
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            byte[] chunk = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                buf.write(chunk, 0, n);
+                if (buf.size() > MAX_FILE) return null;
+            }
+            return Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP);
+        }
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (Exception ignored) {}
+        String last = uri.getLastPathSegment();
+        return last == null ? null : last.substring(last.lastIndexOf('/') + 1);
     }
 
     private static String textOf(Intent intent) {

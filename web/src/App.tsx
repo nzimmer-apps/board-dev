@@ -332,9 +332,14 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     let off = () => {};
-    onShared((text) => add(text, 'share'), (img, caption) => addFile(img, caption, 'share')).then((f) => (off = f));
+    onShared(
+      (text) => add(text, 'share'),
+      (img, caption) => addFile(img, caption, 'share'),
+      (file, caption) => addFile(file, caption, 'share'),
+      (msg) => flash(msg),
+    ).then((f) => (off = f));
     return () => off();
-  }, [session, add, addFile]);
+  }, [session, add, addFile, flash]);
 
   useEffect(() => {
     if (session) syncReminders(items);
