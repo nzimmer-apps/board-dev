@@ -51,6 +51,26 @@ public class ShareIntentPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    // ---- Home-screen widget taps ("note" or "voice") ----
+    private static String pendingQuick = null;
+
+    static void setPendingQuick(String mode) { pendingQuick = mode; }
+
+    /** Called by the web app on startup: the widget button that opened the app, if any. */
+    @PluginMethod
+    public void takeQuick(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("mode", pendingQuick);
+        pendingQuick = null;
+        call.resolve(ret);
+    }
+
+    void emitQuick(String mode) {
+        JSObject o = new JSObject();
+        o.put("mode", mode);
+        notifyListeners("quick", o, true);
+    }
+
     /** Called by MainActivity when a share arrives while the app is already open. */
     void emit(Shared s) {
         notifyListeners("shared", s.toJs(), true);

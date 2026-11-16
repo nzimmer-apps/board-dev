@@ -16,9 +16,21 @@ interface Shared {
   fileName?: string | null;
   error?: string | null; // a file was shared but couldn't be passed on
 }
+type Quick = { mode: 'note' | 'voice' | null };
 interface ShareIntentPlugin {
   takePending(): Promise<Shared>;
   addListener(event: 'shared', cb: (d: Shared) => void): Promise<{ remove: () => void }>;
+  takeQuick(): Promise<Quick>;
+  addListener(event: 'quick', cb: (d: Quick) => void): Promise<{ remove: () => void }>;
+}
+
+/** Android home-screen widget: "note" = open ready to type, "voice" = start a voice note. */
+export async function onQuick(cb: (mode: 'note' | 'voice') => void): Promise<() => void> {
+  if (!isAndroid) return () => {};
+  const handle = (d: Quick) => { if (d.mode) cb(d.mode); };
+  handle(await ShareIntent.takeQuick().catch(() => ({ mode: null }) as Quick));
+  const h = await ShareIntent.addListener('quick', handle);
+  return () => h.remove();
 }
 const ShareIntent = registerPlugin<ShareIntentPlugin>('ShareIntent');
 

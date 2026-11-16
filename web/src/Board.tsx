@@ -61,6 +61,19 @@ export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoic
     return () => window.removeEventListener('board-focus-capture', f);
   }, []);
 
+  // Android widget: "note" = ready to type, "voice" = start recording.
+  const startRec = useRef(rec.start);
+  startRec.current = rec.start;
+  useEffect(() => {
+    const q = (e: Event) => {
+      const mode = (e as CustomEvent<string>).detail;
+      if (mode === 'voice' && canRecord) setTimeout(() => startRec.current(), 150);
+      else setTimeout(() => inputRef.current?.focus(), 150);
+    };
+    window.addEventListener('board-quick', q);
+    return () => window.removeEventListener('board-quick', q);
+  }, []);
+
   const tagCounts = useMemo(() => {
     const m = new Map<string, number>();
     items.forEach((i) => i.tags.forEach((t) => m.set(t, (m.get(t) ?? 0) + 1)));

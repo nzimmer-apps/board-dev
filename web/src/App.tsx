@@ -9,7 +9,7 @@ import Archive from './Archive';
 import Tags from './Tags';
 import More, { ThemeSwatches } from './More';
 import EventPrompt, { type Proposal } from './EventPrompt';
-import { onShared, syncReminders, registerHotkey } from './native';
+import { onShared, onQuick, syncReminders, registerHotkey } from './native';
 import { shrink, upload, readText, download, removeImage } from './images';
 import { uploadFile, downloadFile, removeFile, pdfText, audioKind } from './files';
 import { unfurl, looksLikeEventUrl } from './unfurl';
@@ -344,6 +344,17 @@ export default function App() {
   useEffect(() => {
     if (session) syncReminders(items);
   }, [session, items]);
+
+  // Android widget taps.
+  useEffect(() => {
+    if (!session) return;
+    let off = () => {};
+    onQuick((mode) => {
+      setView('board');
+      window.dispatchEvent(new CustomEvent('board-quick', { detail: mode }));
+    }).then((f) => (off = f));
+    return () => off();
+  }, [session]);
 
   useEffect(() => {
     registerHotkey(() => {

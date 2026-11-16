@@ -4,4 +4,7 @@
     <string name="title_activity_main">Board Dev</string>
     <string name="package_name">com.nzimmerapps.board.dev</string>
     <string name="custom_url_scheme">com.nzimmerapps.board.dev</string>
+    <string name="widget_add">＋ Add a note</string>
+    <string name="widget_voice">Record a voice note</string>
+    <string name="widget_description">Add a note or a voice note in one tap</string>
 </resources>

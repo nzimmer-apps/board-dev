@@ -23,13 +23,30 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ShareIntentPlugin.class);
         super.onCreate(savedInstanceState);
+        String quick = quickMode(getIntent());
+        if (quick != null) ShareIntentPlugin.setPendingQuick(quick);
         ShareIntentPlugin.Shared s = extract(getIntent());
         if (s != null) ShareIntentPlugin.setPending(s);
+    }
+
+    /** "note" or "voice" when the app was opened from the home-screen widget. */
+    private static String quickMode(Intent intent) {
+        if (intent == null || !BoardWidget.ACTION_QUICK.equals(intent.getAction())) return null;
+        String mode = intent.getStringExtra(BoardWidget.EXTRA_MODE);
+        intent.setAction(Intent.ACTION_MAIN); // only once, not again on rotation
+        return "voice".equals(mode) ? "voice" : "note";
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        String quick = quickMode(intent);
+        if (quick != null) {
+            PluginHandle q = getBridge() == null ? null : getBridge().getPlugin("ShareIntent");
+            if (q != null && q.getInstance() instanceof ShareIntentPlugin) ((ShareIntentPlugin) q.getInstance()).emitQuick(quick);
+            else ShareIntentPlugin.setPendingQuick(quick);
+            return;
+        }
         ShareIntentPlugin.Shared s = extract(intent);
         if (s == null) return;
         PluginHandle h = getBridge() == null ? null : getBridge().getPlugin("ShareIntent");
