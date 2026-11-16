@@ -105,3 +105,10 @@ code { font-family: var(--mono); background: var(--accent-dim); padding: 0 4px; 
 /* Snooze */
 .card .snooze-menu { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; font-size: 12px; }
 .card .snoozed { display: flex; gap: 8px; align-items: center; font-size: 12px; margin-top: 4px; }
+
+/* Upcoming dates of a repeating note */
+.card .upcoming { display: grid; gap: 4px; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--line, #333); border-radius: 6px; }
+.card .upcoming .occ { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.card .upcoming .occ .when { min-width: 140px; }
+.card .upcoming .occ.skipped .when { text-decoration: line-through; opacity: .55; }
+.card .upcoming input { width: auto; font-size: 12px; }

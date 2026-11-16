@@ -8,13 +8,14 @@ interface Props {
   colors: TagColors;
   onUpdate: (id: string, patch: Partial<Item>) => void;
   onRemove: (id: string) => void;
+  onInsert?: (row: Partial<Item>) => Promise<boolean>;
 }
 
 const key = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-export default function Calendar({ items, colors, onUpdate, onRemove }: Props) {
+export default function Calendar({ items, colors, onUpdate, onRemove, onInsert }: Props) {
   const today = new Date();
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [picked, setPicked] = useState<Date>(today);
@@ -83,7 +84,7 @@ export default function Calendar({ items, colors, onUpdate, onRemove }: Props) {
             {dayItems.map(({ i, at }) => (
               <div key={`${i.id}@${at.getTime()}`}>
                 {i.repeat && !i.all_day && <div className="occ muted">{time(at)} on this day</div>}
-                <Card item={i} colors={colors} onUpdate={onUpdate} onRemove={onRemove} />
+                <Card item={i} colors={colors} onUpdate={onUpdate} onRemove={onRemove} onInsert={onInsert} />
               </div>
             ))}
           </div>

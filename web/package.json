@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/parse.test.ts src/parse.repeat.test.ts src/repeat.test.ts src/checklist.test.ts src/snooze.test.ts src/parse.duration.test.ts",
+    "test": "node --experimental-strip-types --test src/parse.test.ts src/parse.repeat.test.ts src/repeat.test.ts src/checklist.test.ts src/snooze.test.ts src/parse.duration.test.ts src/repeat.skip.test.ts",
     "build:ext": "esbuild src/parse.ts --bundle --format=iife --global-name=BoardParse --minify --outfile=../extension/parse.js"
   },
   "dependencies": {

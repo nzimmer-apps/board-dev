@@ -6,6 +6,21 @@ export interface Repeat {
   freq: Freq;
   interval: number; // every N days / weeks / months / years
   days?: number[]; // weekly only: 0 = Sunday … 6 = Saturday
+  /** Dates left out ("YYYY-MM-DD", local): skipped, or moved to a separate one-off note. */
+  skip?: string[];
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** Local calendar day of an occurrence, the key used in Repeat.skip. */
+export const dayKey = (d: Date) => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+
+/** The rule with one date skipped (or un-skipped). */
+export function withSkip(r: Repeat, d: Date, skip = true): Repeat {
+  const k = dayKey(d);
+  const rest = (r.skip ?? []).filter((x) => x !== k);
+  const next = skip ? [...rest, k].sort() : rest;
+  const { skip: _old, ...base } = r;
+  return next.length ? { ...base, skip: next } : base;
 }
 
 const DAY = 864e5;
@@ -20,7 +35,8 @@ export function occurrences(start: Date, r: Repeat | null | undefined, from: Dat
   const iv = Math.max(1, Math.floor(r.interval || 1));
   const h = start.getHours();
   const mi = start.getMinutes();
-  const push = (d: Date) => { if (d >= start && d >= from && d < to) out.push(d); };
+  const skip = new Set(r.skip ?? []);
+  const push = (d: Date) => { if (d >= start && d >= from && d < to && !skip.has(dayKey(d))) out.push(d); };
 
   if (r.freq === 'daily' || r.freq === 'weekly') {
     const days = r.freq === 'weekly' ? (r.days?.length ? r.days : [start.getDay()]) : null;
@@ -51,8 +67,10 @@ export function occurrences(start: Date, r: Repeat | null | undefined, from: Dat
 export function nextOccurrence(start: Date, r: Repeat | null | undefined, after: Date): Date | null {
   if (!r) return start >= after ? start : null;
   const iv = Math.max(1, Math.floor(r.interval || 1));
-  const span = { daily: iv + 1, weekly: iv * 7 + 7, monthly: iv * 31 + 31, yearly: iv * 366 + 366 }[r.freq] * DAY;
   const from = after > start ? after : start;
+  // Widen the search by one period per upcoming skipped date, so skips never hide the next real one.
+  const ahead = (r.skip ?? []).filter((k) => k >= dayKey(from)).length;
+  const span = { daily: iv + 1, weekly: iv * 7 + 7, monthly: iv * 31 + 31, yearly: iv * 366 + 366 }[r.freq] * DAY * (1 + ahead);
   return occurrences(start, r, from, new Date(from.getTime() + span), 1)[0] ?? null;
 }
 

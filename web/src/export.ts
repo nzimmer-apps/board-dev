@@ -82,7 +82,15 @@ export function toIcs(items: Item[]): string {
       // No length given: an hour, the usual calendar default.
       out.push(`DTSTART:${icsLocal(d)}`, `DTEND:${icsLocal(new Date(d.getTime() + (i.duration_min ?? 60) * 60e3))}`);
     }
-    if (i.repeat) out.push(`RRULE:${rrule(i.repeat)}`);
+    if (i.repeat) {
+      out.push(`RRULE:${rrule(i.repeat)}`);
+      // Skipped or moved dates, at the series' usual time.
+      for (const k of i.repeat.skip ?? []) {
+        const [y, m, dd] = k.split('-').map(Number);
+        const x = new Date(y, m - 1, dd, d.getHours(), d.getMinutes());
+        out.push(i.all_day ? `EXDATE;VALUE=DATE:${icsLocal(x).slice(0, 8)}` : `EXDATE:${icsLocal(x)}`);
+      }
+    }
     out.push(`SUMMARY:${icsText(title)}`);
     const desc = [i.body.split('\n').slice(1).join('\n'), i.tags.length ? '#' + i.tags.join(' #') : ''].filter(Boolean).join('\n');
     if (desc) out.push(`DESCRIPTION:${icsText(desc)}`);

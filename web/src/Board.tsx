@@ -15,6 +15,7 @@ interface Props {
   onAddVoice: (audio: Blob, transcript: string, caption: string, seconds: number) => Promise<boolean>;
   onUpdate: (id: string, patch: Partial<Item>) => void;
   onRemove: (id: string) => void;
+  onInsert?: (row: Partial<Item>) => Promise<boolean>;
   onError: (msg: string) => void;
   /** Set from the Tags screen to open the board filtered to one tag. */
   jump?: { tag: string; n: number } | null;
@@ -24,7 +25,7 @@ const ACCEPT = 'image/*,application/pdf,audio/*';
 const isAttachable = (f: File) => f.type.startsWith('image/') || f.type.startsWith('audio/') || f.type === 'application/pdf';
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoice, onUpdate, onRemove, onError }: Props) {
+export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoice, onUpdate, onRemove, onInsert, onError }: Props) {
   const [draft, setDraft] = useState('');
   const [q, setQ] = useState('');
   const [tag, setTag] = useState<string | null>(null);
@@ -243,7 +244,7 @@ export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoic
       ) : (
         <div className="grid">
           {shown.map((i) => (
-            <Card key={i.id} item={i} colors={colors} onUpdate={onUpdate} onRemove={onRemove} onTag={setTag} />
+            <Card key={i.id} item={i} colors={colors} onUpdate={onUpdate} onRemove={onRemove} onInsert={onInsert} onTag={setTag} />
           ))}
         </div>
       )}

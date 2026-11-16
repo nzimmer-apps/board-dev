@@ -180,6 +180,19 @@ export default function App() {
     [flash, enrichLink],
   );
 
+  // A single new note built elsewhere (e.g. one date of a repeating note moved to its own time).
+  const insertItem = useCallback(
+    async (row: Partial<Item>) => {
+      const { data, error } = await supabase.from('items').insert(row).select(ITEM_COLS).single();
+      if (error) { flash(`Not saved: ${error.message}`); return false; }
+      const it = data as unknown as Item;
+      setItems((xs) => [it, ...xs.filter((x) => x.id !== it.id)]);
+      flash('Saved as its own note');
+      return true;
+    },
+    [flash],
+  );
+
   const remove = useCallback(
     async (id: string) => {
       const it = items.find((x) => x.id === id) ?? archived?.find((x) => x.id === id);
@@ -392,9 +405,9 @@ export default function App() {
         )}
       </header>
       {view === 'board' && (
-        <Board items={items} colors={colors} jump={jump} onAdd={add} onAddFile={addFile} onAddVoice={addVoice} onUpdate={update} onRemove={remove} onError={flash} />
+        <Board items={items} colors={colors} jump={jump} onAdd={add} onAddFile={addFile} onAddVoice={addVoice} onUpdate={update} onRemove={remove} onInsert={insertItem} onError={flash} />
       )}
-      {view === 'calendar' && <Calendar items={items} colors={colors} onUpdate={update} onRemove={remove} />}
+      {view === 'calendar' && <Calendar items={items} colors={colors} onUpdate={update} onRemove={remove} onInsert={insertItem} />}
       {view === 'archive' && <Archive items={archived} colors={colors} onUpdate={update} onRemove={remove} />}
       {view === 'tags' && (
         <Tags items={items} colors={colors} onRename={renameTag} onDelete={deleteTag} onColor={colorTag}

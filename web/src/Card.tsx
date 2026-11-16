@@ -3,6 +3,7 @@ import { imageUrl } from './images';
 import { fileUrl } from './files';
 import ReminderPicker, { offsetLabel } from './Reminders';
 import RepeatPicker from './RepeatPicker';
+import Upcoming from './Upcoming';
 import { effectiveDue, nextOccurrence, repeatLabel, type Repeat } from './repeat';
 import type { Item, TagColors } from './supabase';
 import { lines, progress, toggle } from './checklist';
@@ -120,9 +121,11 @@ interface Props {
   colors?: TagColors;
   /** Archive screen: show Restore / Delete instead of the usual actions. */
   archived?: boolean;
+  /** Adds a new note (used to move one date of a repeating note). */
+  onInsert?: (row: Partial<Item>) => Promise<boolean>;
 }
 
-export default function Card({ item, onUpdate, onRemove, onTag, colors, archived }: Props) {
+export default function Card({ item, onUpdate, onRemove, onTag, colors, archived, onInsert }: Props) {
   const [editing, setEditing] = useState(false);
   const [zoom, setZoom] = useState<string | null>(null);
   const [body, setBody] = useState(item.body);
@@ -134,6 +137,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   const [remind, setRemind] = useState<number[]>(item.remind_offsets ?? [0]);
   const [repeat, setRepeat] = useState<Repeat | null>(item.repeat);
   const [snoozing, setSnoozing] = useState(false);
+  const [dates, setDates] = useState(false);
   // A repeating note shows its next occurrence, not the first one it was created with.
   const shownDue = effectiveDue(item);
   const overdue = shownDue && !item.done && new Date(shownDue) < new Date();
@@ -197,6 +201,9 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
             {item.due_at && !item.done && (
               <button title="Snooze: remind me again later" onClick={() => setSnoozing((v) => !v)}>⏰</button>
             )}
+            {item.repeat && (
+              <button title="Upcoming dates: skip or change one" onClick={() => setDates((v) => !v)}>📅</button>
+            )}
             <button title={item.pinned ? 'Unpin' : 'Pin'} onClick={() => onUpdate(item.id, { pinned: !item.pinned })}>
               {item.pinned ? '★' : '☆'}
             </button>
@@ -205,6 +212,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
           </span>
         )}
       </div>
+      {dates && item.repeat && <Upcoming item={item} onUpdate={onUpdate} onInsert={onInsert} />}
       {snoozing && (
         <div className="snooze-menu">
           <span className="muted">Remind me again in</span>
