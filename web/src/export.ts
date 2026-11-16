@@ -27,7 +27,7 @@ const local = (iso: string) => {
 };
 
 export function toCsv(items: Item[]): string {
-  const cols = ['created', 'text', 'tags', 'date', 'all_day', 'kind', 'repeats', 'notify_minutes_before', 'location', 'link', 'done', 'pinned', 'archived', 'attachment', 'text_in_attachment'];
+  const cols = ['created', 'text', 'tags', 'date', 'all_day', 'length_minutes', 'kind', 'repeats', 'notify_minutes_before', 'location', 'link', 'done', 'pinned', 'archived', 'attachment', 'text_in_attachment'];
   // A leading = + - @ would run as a formula in a spreadsheet: neutralise it.
   const cell = (v: unknown) => {
     let s = v === null || v === undefined ? '' : String(v);
@@ -35,7 +35,7 @@ export function toCsv(items: Item[]): string {
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const rows = items.map((i) => [
-    local(i.created_at), i.body, i.tags.join(' '), i.due_at ? local(i.due_at) : '', i.all_day, i.kind ?? '', repeatLabel(i.repeat),
+    local(i.created_at), i.body, i.tags.join(' '), i.due_at ? local(i.due_at) : '', i.all_day, i.duration_min ?? '', i.kind ?? '', repeatLabel(i.repeat),
     (i.remind_offsets ?? []).join(' '), i.location ?? '', i.url ?? '', i.done, i.pinned, i.archived,
     i.image_path ? 'image' : i.file_type ?? '', i.ocr_text ?? '',
   ]);
@@ -75,10 +75,12 @@ export function toIcs(items: Item[]): string {
     const title = i.body.split('\n')[0] || i.file_name || 'Board note';
     out.push('BEGIN:VEVENT', `UID:${i.id}@board`, `DTSTAMP:${icsUtc(new Date())}`);
     if (i.all_day) {
-      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+      const days = Math.max(1, Math.round((i.duration_min ?? 0) / 1440));
+      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
       out.push(`DTSTART;VALUE=DATE:${icsLocal(d).slice(0, 8)}`, `DTEND;VALUE=DATE:${icsLocal(next).slice(0, 8)}`);
     } else {
-      out.push(`DTSTART:${icsLocal(d)}`, `DTEND:${icsLocal(new Date(d.getTime() + 3600e3))}`);
+      // No length given: an hour, the usual calendar default.
+      out.push(`DTSTART:${icsLocal(d)}`, `DTEND:${icsLocal(new Date(d.getTime() + (i.duration_min ?? 60) * 60e3))}`);
     }
     if (i.repeat) out.push(`RRULE:${rrule(i.repeat)}`);
     out.push(`SUMMARY:${icsText(title)}`);

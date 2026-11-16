@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Item, TagColors } from './supabase';
-import Card, { fmtDue, hasPassed } from './Card';
+import Card, { fmtDue, fmtRange, hasPassed } from './Card';
 import ReminderPicker, { offsetLabel } from './Reminders';
 import { parseAll } from './parse';
 import { effectiveDue, occurrences, repeatLabel } from './repeat';
@@ -207,7 +207,7 @@ export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoic
           <ul>
             {passed.slice(0, 6).map((i) => (
               <li key={i.id}>
-                <span className="when">{fmtDue(i)}</span>
+                <span className="when">{fmtRange(i)}</span>
                 <span className="what">{i.body.split('\n')[0] || i.file_name || 'Attachment'}</span>
                 <span className="acts">
                   <button className="small" title="Move to Archive" onClick={() => onUpdate(i.id, { archived: true })}>Archive</button>
@@ -230,7 +230,7 @@ export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoic
                 {i.repeat
                   ? <span className="tick" title={repeatLabel(i.repeat)}>🔁</span>
                   : <button className="tick" title="Mark done" onClick={() => onUpdate(i.id, { done: true })}>○</button>}
-                <span className="when">{fmtDue({ due_at: due, all_day: i.all_day })}</span>
+                <span className="when">{fmtRange({ due_at: due, all_day: i.all_day, duration_min: i.duration_min })}</span>
                 <span className="what">{i.body.split('\n')[0] || i.file_name || 'Attachment'}</span>
               </li>
             ))}

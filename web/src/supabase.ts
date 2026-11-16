@@ -39,10 +39,12 @@ export interface Item {
   file_name: string | null;
   /** One extra reminder at this time (snooze). */
   snoozed_until: string | null;
+  /** Event length in minutes, null = no end time. */
+  duration_min: number | null;
 }
 
 export const ITEM_COLS =
-  'id,body,url,tags,source,due_at,all_day,kind,done,pinned,archived,created_at,image_path,ocr_text,remind_offsets,repeat,location,file_path,file_type,file_name,snoozed_until';
+  'id,body,url,tags,source,due_at,all_day,kind,done,pinned,archived,created_at,image_path,ocr_text,remind_offsets,repeat,location,file_path,file_type,file_name,snoozed_until,duration_min';
 
 /** Tag colours, keyed by tag name. */
 export type TagColors = Record<string, string>;

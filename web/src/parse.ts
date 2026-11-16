@@ -13,6 +13,8 @@ export interface Parsed {
   repeat: Repeat | null;
   /** Minutes before due_at to notify, when the text said so ("notify 2 hours and 8 hours before"). */
   remind: number[] | null;
+  /** How long it lasts in minutes ("7-10 pm", "for 2 hours"), when the text said. */
+  duration: number | null;
 }
 
 const TAG_RE = /(^|\s)#([\p{L}\p{N}_-]{1,40})/gu;
@@ -39,6 +41,36 @@ const unitMinutes = (u: string) => {
   const c = u[0].toLowerCase();
   return c === 'm' ? 1 : c === 'h' ? 60 : c === 'd' ? 1440 : 10080;
 };
+
+// ---------- "7-10 pm", "from 2 to 4pm", "for 2 hours" ----------
+const RANGE_RE = /\b(?:from\s+)?(\d{1,2})(?::([0-5]\d))?\s*(?:([ap])\.?m\.?)?\s*(?:-|–|—|to|until|till)\s*(\d{1,2})(?::([0-5]\d))?\s*([ap])\.?m\b\.?/i;
+const FOR_RE = /\s*\bfor\s+(?:(\d+(?:\.\d+)?)|(an?|one)|(half\s+an?))\s*(hours?|hrs?|h|minutes?|mins?)\b/i;
+const hm = (h: number, m: number, ap: string) => (h % 12) * 60 + (ap.toLowerCase() === 'p' ? 720 : 0) + m;
+
+/** Pull a time range or a length out of the text: the start time stays in, the length comes back separately. */
+function takeDuration(t: string): { t: string; duration: number | null } {
+  const r = t.match(RANGE_RE);
+  if (r) {
+    const [h1, m1, h2, m2] = [r[1], r[2] ?? '0', r[4], r[5] ?? '0'].map((x) => parseInt(x, 10));
+    if (h1 >= 1 && h1 <= 12 && h2 >= 1 && h2 <= 12) {
+      const end = hm(h2, m2, r[6]);
+      // "7-10pm": the start shares the end's am/pm unless that would put it after the end ("11-1pm" = 11 am).
+      let ap = r[3] ?? r[6];
+      if (!r[3] && hm(h1, m1, ap) >= end) ap = ap.toLowerCase() === 'p' ? 'a' : 'p';
+      let d = end - hm(h1, m1, ap);
+      if (d <= 0) d += 1440;
+      const lead = /^from\s/i.test(r[0]) ? 'at ' : '';
+      return { t: t.replace(r[0], `${lead}${h1}:${String(m1).padStart(2, '0')}${ap}m`), duration: d };
+    }
+  }
+  const f = t.match(FOR_RE);
+  if (f) {
+    const n = f[1] ? parseFloat(f[1]) : f[2] ? 1 : 0.5;
+    const d = Math.round(n * (/^m/i.test(f[4]) ? 1 : 60));
+    if (d > 0 && d <= 43200) return { t: (t.slice(0, f.index) + t.slice(f.index! + f[0].length)).trim(), duration: d };
+  }
+  return { t, duration: null };
+}
 
 // ---------- "every week … 6 pm sundays, 7 pm monday and thursdays" ----------
 const DAY_NAME = '(?:sun(?:days?)?|mon(?:days?)?|tue(?:s(?:days?)?)?|wed(?:s|nesdays?)?|thu(?:r(?:s(?:days?)?)?)?|fri(?:days?)?|sat(?:urdays?)?)';
@@ -103,9 +135,15 @@ export function parseAll(raw: string, now: Date = new Date()): Parsed[] {
     t = (t.slice(0, rm.index) + ' ' + t.slice(rm.index! + rm[0].length)).trim();
   }
 
+  // One-off notes keep the words as typed; only date reading sees the normalised range.
+  const typed = t;
+  const took = takeDuration(t);
+  t = took.t;
+  let duration = took.duration;
+
   const kindOf = (s: string): Kind =>
     /\bremind(\s+me)?\b/i.test(s) ? 'reminder' : /\b(due|deadline|by|before)\b/i.test(s) ? 'deadline' : 'event';
-  const base = { tags: [...tags], url, remind };
+  const base = { tags: [...tags], url, remind, duration };
 
   // ---- repeating ----
   const every = t.match(EVERY_RE);
@@ -226,15 +264,26 @@ export function parseAll(raw: string, now: Date = new Date()): Parsed[] {
     if (all_day) d.setHours(9, 0, 0, 0); // all-day items sort/remind at 9am local
     due_at = d.toISOString();
     kind = kindOf(t);
+    // chrono read a range itself ("Dec 5 - Dec 7")
+    if (duration === null && hit.end) {
+      const e = hit.end.date();
+      if (!hit.end.isCertain('hour')) e.setHours(9, 0, 0, 0);
+      const mins = Math.round((e.getTime() - d.getTime()) / 60e3);
+      if (mins > 0 && mins <= 43200) duration = all_day ? Math.max(1440, Math.round(mins / 1440) * 1440) : mins;
+    }
   }
 
-  const body = restore(remind ? tidy(t) : t) || raw.trim();
-  return [{ ...base, body, due_at, all_day, kind, repeat: null }];
+  const body = restore(remind ? tidy(typed) : typed) || raw.trim();
+  return [{ ...base, duration: due_at ? duration : null, body, due_at, all_day, kind, repeat: null }];
 }
 
 /** Rows ready to insert: Parsed without the client-only `remind`, which becomes remind_offsets when given. */
 export function parseRows(raw: string, now: Date = new Date()) {
-  return parseAll(raw, now).map(({ remind, ...row }) => (remind ? { ...row, remind_offsets: remind } : row));
+  return parseAll(raw, now).map(({ remind, duration, ...row }) => ({
+    ...row,
+    ...(remind ? { remind_offsets: remind } : {}),
+    ...(duration ? { duration_min: duration } : {}),
+  }));
 }
 
 /**

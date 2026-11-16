@@ -19,6 +19,25 @@ export function fmtDue(it: Pick<Item, 'due_at' | 'all_day'>) {
   });
 }
 
+/** "Sat, Nov 14, 7:00 PM – 10:00 PM", or "Fri, Dec 5 – Sun, Dec 7" for all-day spans. */
+export function fmtRange(it: Pick<Item, 'due_at' | 'all_day' | 'duration_min'>) {
+  const start = fmtDue(it);
+  if (!it.due_at || !it.duration_min) return start;
+  const s = new Date(it.due_at);
+  if (it.all_day) {
+    const days = Math.round(it.duration_min / 1440);
+    if (days < 1) return start;
+    const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + days);
+    return `${start} – ${e.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`;
+  }
+  const e = new Date(s.getTime() + it.duration_min * 60e3);
+  const sameDay = e.toDateString() === s.toDateString() || it.duration_min < 720;
+  const endFmt: Intl.DateTimeFormatOptions = sameDay
+    ? { hour: 'numeric', minute: '2-digit' }
+    : { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  return `${start} – ${e.toLocaleString([], endFmt)}`;
+}
+
 /** A one-off dated note whose time has gone by and which hasn't been ticked off. */
 export const hasPassed = (i: Item, now = Date.now()) =>
   !!i.due_at && !i.repeat && !i.done && !i.archived &&
@@ -108,6 +127,8 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   const [zoom, setZoom] = useState<string | null>(null);
   const [body, setBody] = useState(item.body);
   const [due, setDue] = useState(toLocalInput(item.due_at));
+  const endOf = (it: Item) => (it.due_at && it.duration_min ? toLocalInput(new Date(new Date(it.due_at).getTime() + it.duration_min * 60e3).toISOString()) : '');
+  const [end, setEnd] = useState(endOf(item));
   const [tags, setTags] = useState(item.tags.join(' '));
   const [place, setPlace] = useState(item.location ?? '');
   const [remind, setRemind] = useState<number[]>(item.remind_offsets ?? [0]);
@@ -122,6 +143,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   function openEdit() {
     setBody(item.body);
     setDue(toLocalInput(item.due_at));
+    setEnd(endOf(item));
     setTags(item.tags.join(' '));
     setPlace(item.location ?? '');
     setRemind(item.remind_offsets ?? [0]);
@@ -130,6 +152,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
   }
 
   function save() {
+    const mins = due && end ? Math.round((new Date(end).getTime() - new Date(due).getTime()) / 60e3) : 0;
     onUpdate(item.id, {
       body: body.trim() || item.body,
       due_at: due ? new Date(due).toISOString() : null,
@@ -139,6 +162,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
       remind_offsets: remind,
       repeat: due ? repeat : null,
       location: place.trim() || null,
+      duration_min: mins > 0 && mins <= 43200 ? mins : null,
     });
     setEditing(false);
   }
@@ -203,6 +227,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
           <button type="button" className="small" title="Add a tick-box line" style={{ alignSelf: 'flex-start' }}
             onClick={() => setBody((b) => (b && !b.endsWith('\n') ? b + '\n' : b) + '[ ] ')}>☑ Add checklist item</button>
           <label>Date <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} /></label>
+          {due && <label>Ends <input type="datetime-local" value={end} min={due} onChange={(e) => setEnd(e.target.value)} /></label>}
           {due && <label>Repeats <RepeatPicker value={repeat} onChange={setRepeat} day={new Date(due).getDay()} /></label>}
           {due && <ReminderPicker value={remind} onChange={setRemind} />}
           <label>Place <input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Where it happens (optional)" /></label>
@@ -228,7 +253,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
       {shownDue && !editing && (
         <div className={overdue ? 'due overdue' : 'due'}>
           {item.kind === 'deadline' ? 'Due ' : item.kind === 'reminder' ? 'Remind ' : ''}
-          {fmtDue({ due_at: shownDue, all_day: item.all_day })}
+          {fmtRange({ due_at: shownDue, all_day: item.all_day, duration_min: item.duration_min })}
           {item.repeat && <span className="rep"> · 🔁 {repeatLabel(item.repeat)}</span>}
           {(item.remind_offsets ?? []).length > 0
             ? <span className="muted"> · 🔔 {(item.remind_offsets ?? []).map(offsetLabel).join(', ')}</span>

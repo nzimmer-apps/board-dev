@@ -7,6 +7,8 @@ export interface LinkInfo {
   /** null when the page gave no usable date */
   due_at: string | null;
   all_day: boolean;
+  /** Event length from the page's end time, if it gave one. */
+  duration_min: number | null;
   location: string | null;
   /** True when the link looks like an event page even if we could not read its date. */
   looksLikeEvent: boolean;
@@ -34,7 +36,7 @@ const cleanTitle = (t: string | null) => t?.replace(/\s+[|·–-]\s+(Facebook|Ev
 export async function unfurl(url: string): Promise<LinkInfo | null> {
   const looksLikeEvent = looksLikeEventUrl(url);
   const { data, error } = await supabase.functions.invoke('unfurl', { body: { url } });
-  if (error || !data) return looksLikeEvent ? { title: null, due_at: null, all_day: false, location: null, looksLikeEvent } : null;
+  if (error || !data) return looksLikeEvent ? { title: null, due_at: null, all_day: false, duration_min: null, location: null, looksLikeEvent } : null;
   const generic = /^(facebook|log in|log into facebook|sign in|error|access denied|just a moment)/i;
   let title = cleanTitle(data.event?.name ?? data.title ?? null);
   if (title && generic.test(title)) title = null;
@@ -44,10 +46,14 @@ export async function unfurl(url: string): Promise<LinkInfo | null> {
     const f = findEventDate(`${data.title ?? ''}\n${data.description ?? ''}`);
     if (f) start = { due_at: f.due_at, all_day: f.all_day };
   }
+  // The page's end time, as a length, when it is after the start.
+  const end = start && data.event?.end ? eventStart(String(data.event.end)) : null;
+  const mins = start && end ? Math.round((new Date(end.due_at).getTime() - new Date(start.due_at).getTime()) / 60e3) : 0;
   return {
     title,
     due_at: start?.due_at ?? null,
     all_day: start?.all_day ?? false,
+    duration_min: mins > 0 && mins <= 43200 ? mins : null,
     location: data.event?.location ?? null,
     looksLikeEvent: looksLikeEvent || !!data.event,
   };

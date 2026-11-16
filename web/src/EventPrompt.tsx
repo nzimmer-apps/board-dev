@@ -11,6 +11,8 @@ export interface Proposal {
   title: string;
   due_at: string | null;
   all_day: boolean;
+  /** Length in minutes when the source gave an end time. */
+  duration_min?: number | null;
   location: string | null;
   tags: string[];
   /** Appended under the title when saving (the link itself, for shared links). */
@@ -38,6 +40,9 @@ export default function EventPrompt({ proposal: p, more, onConfirm, onSkip }: Pr
   const [title, setTitle] = useState(p.title);
   const [allDay, setAllDay] = useState(p.all_day);
   const [when, setWhen] = useState(toInput(p.due_at, p.all_day));
+  const [ends, setEnds] = useState(
+    p.due_at && p.duration_min && !p.all_day ? toInput(new Date(new Date(p.due_at).getTime() + p.duration_min * 60e3).toISOString(), false) : '',
+  );
   const [place, setPlace] = useState(p.location ?? '');
   const [tags, setTags] = useState([...new Set([...p.tags, 'event'])].join(' '));
   const [remind, setRemind] = useState<number[]>([60, 1440]);
@@ -50,7 +55,9 @@ export default function EventPrompt({ proposal: p, more, onConfirm, onSkip }: Pr
   function confirm() {
     if (!when) return;
     const d = allDay ? new Date(`${when}T09:00`) : new Date(when);
+    const mins = !allDay && ends ? Math.round((new Date(ends).getTime() - d.getTime()) / 60e3) : 0;
     onConfirm(p.itemId, {
+      duration_min: mins > 0 && mins <= 43200 ? mins : allDay ? (p.duration_min ?? null) : null,
       body: [title.trim() || p.title, p.keep].filter(Boolean).join('\n'),
       due_at: d.toISOString(),
       all_day: allDay,
@@ -75,6 +82,11 @@ export default function EventPrompt({ proposal: p, more, onConfirm, onSkip }: Pr
         <label>When
           <input type={allDay ? 'date' : 'datetime-local'} value={when} onChange={(e) => setWhen(e.target.value)} autoFocus={!p.due_at} />
         </label>
+        {!allDay && when && (
+          <label>Ends <span className="muted small">(optional)</span>
+            <input type="datetime-local" value={ends} min={when} onChange={(e) => setEnds(e.target.value)} />
+          </label>
+        )}
         <label className="check"><input type="checkbox" checked={allDay} onChange={(e) => flipAllDay(e.target.checked)} /> All day</label>
         <label>Place <input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Optional" /></label>
         <label>Tags <input value={tags} onChange={(e) => setTags(e.target.value)} /></label>

@@ -135,7 +135,7 @@ export default function App() {
       const title = typed || info.title || '';
       if (info.due_at || info.looksLikeEvent) {
         ask({
-          itemId: it.id, from: 'link', title: title || 'Event', due_at: info.due_at, all_day: info.all_day,
+          itemId: it.id, from: 'link', title: title || 'Event', due_at: info.due_at, all_day: info.all_day, duration_min: info.duration_min,
           location: info.location, tags: it.tags, keep: it.url,
         });
       } else if (bare && info.title) {
@@ -148,7 +148,7 @@ export default function App() {
   const add = useCallback(
     async (raw: string, source = 'app', picked: number[] = [0]) => {
       const parsed = parseAll(raw);
-      const rows = parsed.map(({ remind, ...p }) => ({ ...p, source, remind_offsets: remind ?? picked }));
+      const rows = parsed.map(({ remind, duration, ...p }) => ({ ...p, duration_min: duration, source, remind_offsets: remind ?? picked }));
       const stamp = Date.now();
       const optimistic: Item[] = rows.map((r, n) => ({
         id: `tmp-${stamp}-${n}`, ...r, done: false, pinned: false, archived: false, created_at: new Date().toISOString(),
@@ -203,8 +203,8 @@ export default function App() {
       const isAudio = file.type.startsWith('audio/');
       flash(isPdf ? 'Uploading PDF…' : isAudio ? 'Uploading audio…' : 'Uploading image…');
       try {
-        const { remind, ...p } = parseInput(caption);
-        const row: Partial<Item> = { ...p, body: caption.trim() ? p.body : '', source, remind_offsets: remind ?? picked };
+        const { remind, duration, ...p } = parseInput(caption);
+        const row: Partial<Item> = { ...p, duration_min: duration, body: caption.trim() ? p.body : '', source, remind_offsets: remind ?? picked };
         if (isPdf || isAudio) {
           const kind = isPdf ? { type: 'application/pdf', ext: 'pdf' } : audioKind(file.type);
           row.file_path = await uploadFile(file, kind.ext, kind.type);
