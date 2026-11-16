@@ -5,6 +5,7 @@ import ReminderPicker, { offsetLabel } from './Reminders';
 import RepeatPicker from './RepeatPicker';
 import { effectiveDue, nextOccurrence, repeatLabel, type Repeat } from './repeat';
 import type { Item, TagColors } from './supabase';
+import { lines, progress, toggle } from './checklist';
 
 export function fmtDue(it: Pick<Item, 'due_at' | 'all_day'>) {
   if (!it.due_at) return '';
@@ -31,14 +32,31 @@ function toLocalInput(iso: string | null) {
 
 const LINK_RE = /(https?:\/\/[^\s<>"]+)/g;
 
-function Body({ text }: { text: string }) {
-  const parts = text.split(LINK_RE);
+const Linked = ({ text }: { text: string }) => (
+  <>{text.split(LINK_RE).map((p, i) =>
+    i % 2 ? <a key={i} href={p} target="_blank" rel="noreferrer">{p}</a> : <span key={i}>{p}</span>,
+  )}</>
+);
+
+function Body({ text, onToggle }: { text: string; onToggle?: (line: number) => void }) {
+  const all = lines(text);
+  if (!all.some((l) => l.check)) return <p className="body"><Linked text={text} /></p>;
+  const p = progress(text)!;
+  // Plain lines stay as they are; checklist lines become tick boxes.
   return (
-    <p className="body">
-      {parts.map((p, i) =>
-        i % 2 ? <a key={i} href={p} target="_blank" rel="noreferrer">{p}</a> : <span key={i}>{p}</span>,
+    <div className="body">
+      {all.map((l, i) =>
+        l.check ? (
+          <label key={i} className={l.check.done ? 'check done' : 'check'}>
+            <input type="checkbox" checked={l.check.done} disabled={!onToggle} onChange={() => onToggle?.(i)} />
+            <span><Linked text={l.check.label} /></span>
+          </label>
+        ) : (
+          <div key={i} className="line">{l.text ? <Linked text={l.text} /> : ' '}</div>
+        ),
       )}
-    </p>
+      <div className="check-progress muted">{p.done}/{p.total} done</div>
+    </div>
   );
 }
 
@@ -168,6 +186,8 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
       {editing ? (
         <div className="edit">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} />
+          <button type="button" className="small" title="Add a tick-box line" style={{ alignSelf: 'flex-start' }}
+            onClick={() => setBody((b) => (b && !b.endsWith('\n') ? b + '\n' : b) + '[ ] ')}>☑ Add checklist item</button>
           <label>Date <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} /></label>
           {due && <label>Repeats <RepeatPicker value={repeat} onChange={setRepeat} day={new Date(due).getDay()} /></label>}
           {due && <ReminderPicker value={remind} onChange={setRemind} />}
@@ -180,7 +200,7 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
           </div>
         </div>
       ) : (
-        item.body && <Body text={item.body} />
+        item.body && <Body text={item.body} onToggle={archived ? undefined : (i) => onUpdate(item.id, { body: toggle(item.body, i) })} />
       )}
       {item.image_path && <Picture path={item.image_path} onOpen={setZoom} />}
       {item.file_path && <Attachment item={item} />}
