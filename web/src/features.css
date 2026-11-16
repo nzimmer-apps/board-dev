@@ -117,3 +117,10 @@ code { font-family: var(--mono); background: var(--accent-dim); padding: 0 4px; 
 .import-found ul { margin: 6px 0; padding-left: 18px; }
 .import-preview li { opacity: .85; }
 .danger-text { color: var(--danger, #e66); }
+
+/* Offline capture */
+.offline-bar {
+  position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%); z-index: 40;
+  background: var(--panel); color: var(--warn); border: 1px solid var(--warn);
+  padding: 6px 12px; border-radius: 999px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap;
+}

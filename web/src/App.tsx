@@ -15,11 +15,22 @@ import { uploadFile, downloadFile, removeFile, pdfText, audioKind } from './file
 import { unfurl, looksLikeEventUrl } from './unfurl';
 import { applyTheme, getTheme, type ThemeId } from './theme';
 import { repeatLabel } from './repeat';
+import { enqueue, flushQueue, loadQueue, isNetworkError, patchQueued } from './offlineQueue';
 
 type View = 'board' | 'calendar' | 'archive' | 'tags' | 'more';
 const VIEWS: View[] = ['board', 'calendar', 'archive', 'tags', 'more'];
 const fromHash = (): View => VIEWS.find((v) => location.hash === `#${v}`) ?? 'board';
 const asItems = (d: unknown) => (d ?? []) as Item[];
+
+// A note that exists only on this device so far (typed offline, not yet sent).
+const asPending = (r: Record<string, unknown>, at = new Date().toISOString()): Item => ({
+  done: false, pinned: false, archived: false, created_at: at, tags: [], due_at: null, all_day: false, url: null,
+  remind_offsets: [], repeat: null, duration_min: null,
+  image_path: null, ocr_text: null, location: null, file_path: null, file_type: null, file_name: null, snoozed_until: null,
+  ...(r as Partial<Item>),
+} as Item);
+const pendingItems = () => loadQueue(localStorage).map((r) => asPending(r, String(r.created_at ?? new Date().toISOString())));
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -65,8 +76,13 @@ export default function App() {
       .eq('archived', false)
       .order('created_at', { ascending: false })
       .limit(1000);
-    if (error) flash(error.message);
-    else setItems(asItems(data));
+    if (error) { if (!isNetworkError(error.message)) flash(error.message); }
+    else {
+      // Notes still waiting to be sent stay visible on top.
+      const waiting = pendingItems();
+      const got = asItems(data);
+      setItems([...waiting.filter((w) => !got.some((g) => g.id === w.id)), ...got]);
+    }
     if (viewRef.current === 'archive') loadArchived();
   }, [flash, loadArchived]);
 
@@ -116,6 +132,7 @@ export default function App() {
         setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
         setArchived((a) => (a ? a.map((x) => (x.id === id ? { ...x, ...patch } : x)) : a));
       }
+      if (patchQueued(localStorage, id, patch as Record<string, unknown>)) return;
       const { error } = await supabase.from('items').update(patch).eq('id', id);
       if (error) { flash(error.message); load(); }
       else if (patch.archived === true) flash('Archived · find it under Archive');
@@ -148,14 +165,22 @@ export default function App() {
   const add = useCallback(
     async (raw: string, source = 'app', picked: number[] = [0]) => {
       const parsed = parseAll(raw);
-      const rows = parsed.map(({ remind, duration, ...p }) => ({ ...p, duration_min: duration, source, remind_offsets: remind ?? picked }));
-      const stamp = Date.now();
-      const optimistic: Item[] = rows.map((r, n) => ({
-        id: `tmp-${stamp}-${n}`, ...r, done: false, pinned: false, archived: false, created_at: new Date().toISOString(),
-        image_path: null, ocr_text: null, location: null, file_path: null, file_type: null, file_name: null, snoozed_until: null,
+      // Each note gets its id here, so a note sent late (after being offline) can never arrive twice.
+      const rows = parsed.map(({ remind, duration, ...p }) => ({
+        id: crypto.randomUUID(), ...p, duration_min: duration, source, remind_offsets: remind ?? picked,
       }));
+      const optimistic: Item[] = rows.map((r) => asPending(r));
       setItems((xs) => [...optimistic, ...xs]);
+      const keepOffline = () => {
+        const uid = session?.user.id;
+        enqueue(localStorage, rows.map((r, n) => ({ ...r, ...(uid ? { user_id: uid } : {}), created_at: optimistic[n].created_at })));
+        window.dispatchEvent(new Event('board-queued'));
+        flash(`Offline · saved on this device${rows.length > 1 ? ` (${rows.length} items)` : ''}, will sync when you're back online`);
+        return true;
+      };
+      if (isOffline()) return keepOffline();
       const { data, error } = await supabase.from('items').insert(rows).select(ITEM_COLS);
+      if (error && isNetworkError(error.message)) return keepOffline();
       setItems((xs) => xs.filter((x) => !optimistic.some((o) => o.id === x.id)));
       if (error) {
         flash(`Not saved: ${error.message}`);
@@ -177,8 +202,48 @@ export default function App() {
       }
       return true;
     },
-    [flash, enrichLink],
+    [flash, enrichLink, session],
   );
+
+  // Offline notes: show them straight away, and send them whenever the connection comes back.
+  const [online, setOnline] = useState(() => !isOffline());
+  const [waiting, setWaiting] = useState(() => loadQueue(localStorage).length);
+  const flushing = useRef(false);
+  const sync = useCallback(async () => {
+    if (flushing.current || isOffline()) return;
+    flushing.current = true;
+    try {
+      const r = await flushQueue(localStorage, async (rows) => {
+        const { error } = await supabase.from('items').upsert(rows, { onConflict: 'id', ignoreDuplicates: true, defaultToNull: false });
+        return error ? error.message : null;
+      });
+      setWaiting(loadQueue(localStorage).length);
+      if (r.sent) { flash(`Back online · ${r.sent} offline note${r.sent > 1 ? 's' : ''} synced`); load(); }
+      else if (r.error && !isNetworkError(r.error)) { flash(`Offline notes could not be saved: ${r.error}`); load(); }
+    } finally {
+      flushing.current = false;
+    }
+  }, [flash, load]);
+  useEffect(() => {
+    if (!session) return;
+    setItems((xs) => [...pendingItems().filter((p) => !xs.some((x) => x.id === p.id)), ...xs]);
+    sync();
+    const up = () => { setOnline(true); sync(); };
+    const down = () => setOnline(false);
+    const check = () => setWaiting(loadQueue(localStorage).length);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    window.addEventListener('focus', sync);
+    window.addEventListener('board-queued', check);
+    const t = window.setInterval(sync, 60_000);
+    return () => {
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', down);
+      window.removeEventListener('focus', sync);
+      window.removeEventListener('board-queued', check);
+      window.clearInterval(t);
+    };
+  }, [session, sync]);
 
   // A single new note built elsewhere (e.g. one date of a repeating note moved to its own time).
   const insertItem = useCallback(
@@ -199,6 +264,7 @@ export default function App() {
       setItems((xs) => xs.filter((x) => x.id !== id));
       setArchived((a) => (a ? a.filter((x) => x.id !== id) : a));
       setPrompts((ps) => ps.filter((p) => p.itemId !== id));
+      if (patchQueued(localStorage, id, null)) { window.dispatchEvent(new Event('board-queued')); return; }
       const { error } = await supabase.from('items').delete().eq('id', id);
       if (error) { flash(error.message); load(); return; }
       if (it?.image_path) removeImage(it.image_path).catch(() => {});
@@ -438,6 +504,12 @@ export default function App() {
           onConfirm={(id, patch) => { update(id, patch); setPrompts((ps) => ps.slice(1)); flash('Added to your calendar 📅'); }}
           onSkip={() => setPrompts((ps) => ps.slice(1))}
         />
+      )}
+      {(!online || waiting > 0) && (
+        <div className="offline-bar" role="status">
+          {!online ? 'Offline · new notes are kept on this device' : 'Sending notes saved offline…'}
+          {waiting > 0 && ` · ${waiting} waiting`}
+        </div>
       )}
       {toast && <div className="toast">{toast}</div>}
     </div>
