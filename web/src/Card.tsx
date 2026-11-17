@@ -102,10 +102,10 @@ function Attachment({ item }: { item: Item }) {
   );
 }
 
-function FoundText({ text, label }: { text: string | null; label: string }) {
+function FoundText({ text, label, waiting = 'Reading text…', retry }: { text: string | null; label: string; waiting?: string; retry?: () => void }) {
   const [open, setOpen] = useState(false);
-  if (text === null) return <div className="ocr muted">Reading text…</div>;
-  if (!text) return null;
+  if (text === null) return <div className="ocr muted">{waiting}</div>;
+  if (!text) return retry ? <button className="small ghost get-words" onClick={retry}>📝 Get the words</button> : null;
   const short = text.length > 140 && !open;
   return (
     <div className="ocr" onClick={() => setOpen(!open)} title="Text Board read from the attachment (searchable)">
@@ -268,6 +268,10 @@ export default function Card({ item, onUpdate, onRemove, onTag, colors, archived
       {item.image_path && <Picture path={item.image_path} onOpen={setZoom} />}
       {item.file_path && <Attachment item={item} />}
       {(item.image_path || item.file_type === 'pdf') && !editing && <FoundText text={item.ocr_text} label="TEXT" />}
+      {item.file_type === 'audio' && !editing && (
+        <FoundText text={item.ocr_text} label="SAID" waiting="Getting the words…"
+          retry={shared && !shared.canEdit ? undefined : () => onUpdate(item.id, { ocr_text: null })} />
+      )}
       {sharing && <ShareDialog target={{ item_id: item.id }} label="this note" onClose={() => setSharing(false)} />}
       {zoom && <div className="lightbox" onClick={() => setZoom(null)}><img src={zoom} alt="" /></div>}
       {item.location && !editing && (

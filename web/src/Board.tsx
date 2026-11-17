@@ -12,7 +12,7 @@ interface Props {
   colors: TagColors;
   onAdd: (raw: string, source?: string, remind?: number[]) => Promise<boolean>;
   onAddFile: (file: Blob, caption: string, source?: string, remind?: number[]) => Promise<boolean>;
-  onAddVoice: (audio: Blob, transcript: string, caption: string, seconds: number) => Promise<boolean>;
+  onAddVoice: (audio: Blob, transcript: string, caption: string, seconds: number, remind?: number[]) => Promise<boolean>;
   onUpdate: (id: string, patch: Partial<Item>) => void;
   onRemove: (id: string) => void;
   onInsert?: (row: Partial<Item>) => Promise<boolean>;
@@ -42,7 +42,8 @@ export default function Board({ items, colors, jump, onAdd, onAddFile, onAddVoic
   const rec = useRecorder((audio, transcript, seconds) => {
     const caption = draft.trim();
     setDraft('');
-    onAddVoice(audio, transcript, caption, seconds);
+    onAddVoice(audio, transcript, caption, seconds, remind);
+    setRemind([0]);
   }, onError);
 
   // Attachments use the typed text (if any) as their caption, so "#receipts" + a photo is filed under receipts.

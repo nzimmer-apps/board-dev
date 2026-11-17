@@ -106,3 +106,5 @@ a { color: var(--accent); word-break: break-all; }
 .remind { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .remind .chip { font-size: 11px; padding: 2px 8px; text-transform: none; }
 .small { font-size: 11px; }
+.toast-action { margin-left: 12px; background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 999px; padding: 2px 12px; font-weight: 700; cursor: pointer; }
+.get-words { margin-top: 6px; }

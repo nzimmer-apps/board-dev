@@ -12,6 +12,8 @@ import EventPrompt, { type Proposal } from './EventPrompt';
 import { onShared, onQuick, syncReminders, registerHotkey } from './native';
 import { shrink, upload, readText, download, removeImage } from './images';
 import { uploadFile, downloadFile, removeFile, pdfText, audioKind } from './files';
+import { transcribe } from './transcribe';
+import { planVoice, isPlaceholderBody } from './voice';
 import { unfurl, looksLikeEventUrl } from './unfurl';
 import { applyTheme, getTheme, type ThemeId } from './theme';
 import { repeatLabel } from './repeat';
@@ -36,6 +38,9 @@ const asPending = (r: Record<string, unknown>, at = new Date().toISOString()): I
 const pendingItems = () => loadQueue(localStorage).map((r) => asPending(r, String(r.created_at ?? new Date().toISOString())));
 // Opened from a share link: show that instead of the app (no sign-in needed).
 const LINK_TOKEN = typeof location !== 'undefined' ? tokenFromSearch(location.search) : null;
+type ToastAction = { label: string; run: () => void };
+const whenLabel = (iso: string) =>
+  new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 export default function App() {
@@ -44,7 +49,7 @@ export default function App() {
   const [archived, setArchived] = useState<Item[] | null>(null);
   const [colors, setColors] = useState<TagColors>({});
   const [view, setView] = useState<View>(fromHash);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; action?: ToastAction } | null>(null);
   const [theme, setTheme] = useState<ThemeId>(getTheme);
   const [themeOpen, setThemeOpen] = useState(false);
   const [prompts, setPrompts] = useState<Proposal[]>([]);
@@ -65,10 +70,10 @@ export default function App() {
   }, []);
 
   const toastTimer = useRef<number>();
-  const flash = useCallback((m: string) => {
-    setToast(m);
+  const flash = useCallback((m: string, action?: ToastAction) => {
+    setToast({ msg: m, action });
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3000);
+    toastTimer.current = window.setTimeout(() => setToast(null), action ? 8000 : 3000);
   }, []);
 
   const viewRef = useRef(view);
@@ -333,7 +338,7 @@ export default function App() {
           row.file_path = await uploadFile(file, kind.ext, kind.type);
           row.file_type = isPdf ? 'pdf' : 'audio';
           row.file_name = name || (isPdf ? 'Document.pdf' : 'Audio');
-          if (isAudio) { row.ocr_text = ''; if (!row.body) row.body = name || 'Audio note'; }
+          if (isAudio && !row.body) row.body = name || 'Audio note'; // the words replace this once they're read
           localBlobs.current.set(row.file_path, file);
         } else {
           const blob = await shrink(file);
@@ -343,7 +348,7 @@ export default function App() {
         const { data, error } = await supabase.from('items').insert(row).select(ITEM_COLS).single();
         if (error) throw error;
         setItems((xs) => [data as unknown as Item, ...xs]);
-        flash(isAudio ? 'Audio saved' : `${isPdf ? 'PDF' : 'Image'} saved · reading text…`);
+        flash(isAudio ? 'Audio saved · getting the words…' : `${isPdf ? 'PDF' : 'Image'} saved · reading text…`);
         return true;
       } catch (e) {
         flash(`Not saved: ${(e as Error).message}`);
@@ -353,36 +358,70 @@ export default function App() {
     [flash],
   );
 
-  // Voice note: the recording is kept, and what was said (where the browser can transcribe) becomes the note text.
+  // What a voice note said → its text and tags; a day + time books it, a day alone is asked about.
+  // Returns the changes for the note and what to tell the user once they're saved.
+  const readVoice = useCallback(
+    (it: Pick<Item, 'body' | 'tags' | 'due_at' | 'file_name' | 'remind_offsets'>, transcript: string, caption = '') => {
+      const placeholder = isPlaceholderBody(it.body, it.file_name);
+      const typed = caption || (placeholder ? '' : it.body);
+      const v = planVoice(transcript, typed, it.remind_offsets.length ? it.remind_offsets : [0]);
+      const patch: Partial<Item> = { ocr_text: transcript, tags: [...new Set([...it.tags, ...v.tags])] };
+      if (v.body && (placeholder || caption)) patch.body = v.body;
+      if (v.url) patch.url = v.url;
+      const booked = !it.due_at && v.booking ? v.booking : null;
+      const tagsUnbooked = patch.tags;
+      if (booked) Object.assign(patch, booked, { tags: [...new Set([...(patch.tags ?? []), ...(booked.kind === 'event' ? ['event'] : [])])] });
+      const after = (id: string) => {
+        if (booked) {
+          flash(`Booked 📅 ${whenLabel(booked.due_at)}`, {
+            label: 'Undo',
+            run: () => { update(id, { due_at: null, all_day: false, kind: null, repeat: null, duration_min: null, tags: tagsUnbooked }); flash('Taken off the calendar'); },
+          });
+        } else if (v.ask && !it.due_at) {
+          ask({ itemId: id, from: 'voice note', title: (patch.body ?? it.body).split('\n')[0].slice(0, 120), due_at: v.ask.due_at, all_day: v.ask.all_day, location: null, tags: patch.tags ?? it.tags, quote: v.ask.text });
+        } else if (transcript) flash(`Got the words: “${transcript.slice(0, 60)}${transcript.length > 60 ? '…' : ''}”`);
+        else flash('No words found in the recording');
+      };
+      return { patch, after };
+    },
+    [flash, update, ask],
+  );
+
+  // Voice note: the recording is kept, and what was said becomes the note text. Chrome and Edge hear the words
+  // while recording; everywhere else (the Android and Windows apps, other browsers) they're read afterwards on this device.
   const addVoice = useCallback(
-    async (audio: Blob, transcript: string, caption: string, seconds: number) => {
+    async (audio: Blob, transcript: string, caption: string, seconds: number, picked: number[] = [0]) => {
       flash('Saving voice note…');
       try {
         const kind = audioKind(audio.type);
         const path = await uploadFile(audio, kind.ext, kind.type);
-        const said = [caption, transcript].filter(Boolean).join('\n');
-        // Tags come out of the words; any date in them is confirmed with the user below rather than applied silently.
-        const p = parseInput(said);
         const stamp = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const row: Partial<Item> = {
-          body: said ? said.replace(/(^|\s)#[\p{L}\p{N}_-]+/gu, '$1').trim() || said : `Voice note · ${stamp}`,
-          tags: p.tags, url: p.url, source: 'app', file_path: path, file_type: 'audio',
-          file_name: `Voice note ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, ocr_text: transcript,
+        const base = {
+          body: `Voice note · ${stamp}`, tags: [] as string[], due_at: null, remind_offsets: picked,
+          file_name: `Voice note ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
         };
+        // No live words: save the caption (if typed) and let the text queue read the recording.
+        const heard = transcript ? readVoice(base, transcript, caption) : null;
+        const typed = !transcript && caption ? parseInput(caption) : null;
+        const row: Partial<Item> = {
+          ...base, source: 'app', file_path: path, file_type: 'audio', ocr_text: null,
+          ...(typed ? { body: caption, tags: typed.tags, url: typed.url } : {}),
+          ...(heard?.patch ?? {}),
+        };
+        if (!transcript) localBlobs.current.set(path, audio);
         const { data, error } = await supabase.from('items').insert(row).select(ITEM_COLS).single();
         if (error) throw error;
         const it = data as unknown as Item;
         setItems((xs) => [it, ...xs]);
-        flash(transcript ? 'Voice note saved with its words' : 'Voice note saved');
-        const found = said ? findEventDate(said) : null;
-        if (found) ask({ itemId: it.id, from: 'voice note', title: it.body.split('\n')[0].slice(0, 120), due_at: found.due_at, all_day: found.all_day, location: null, tags: it.tags, quote: found.text });
+        if (heard) heard.after(it.id);
+        else flash('Voice note saved · getting the words…');
         return true;
       } catch (e) {
         flash(`Voice note not saved: ${(e as Error).message}`);
         return false;
       }
     },
-    [flash, ask],
+    [flash, readVoice],
   );
 
   // Text queue: any image or PDF without text yet gets read on this device, one at a time.
@@ -390,7 +429,7 @@ export default function App() {
   const ocrFailed = useRef(new Set<string>());
   useEffect(() => {
     if (!session || ocrBusy.current) return;
-    const next = items.find((i) => (i.image_path || i.file_type === 'pdf') && i.ocr_text === null && !i.id.startsWith('tmp-') && !ocrFailed.current.has(i.id));
+    const next = items.find((i) => (i.image_path || i.file_type === 'pdf' || i.file_type === 'audio') && i.ocr_text === null && !i.id.startsWith('tmp-') && !ocrFailed.current.has(i.id));
     if (!next) return;
     ocrBusy.current = true;
     (async () => {
@@ -398,6 +437,18 @@ export default function App() {
       try {
         const blob = localBlobs.current.get(path) ?? (next.image_path ? await download(path) : await downloadFile(path));
         if (!blob) throw new Error('download failed');
+        if (next.file_type === 'audio') {
+          let shown = -1;
+          const words = await transcribe(blob, (pct) => {
+            // First use only: the speech model downloads, then stays cached.
+            if (pct < 100 && pct - shown >= 10) { shown = pct; flash(`Getting the words · downloading speech model ${pct}% (first time only)`); }
+          });
+          localBlobs.current.delete(path);
+          const { patch, after } = readVoice(next, words);
+          await update(next.id, patch);
+          after(next.id);
+          return;
+        }
         const text = next.image_path ? await readText(blob) : await pdfText(blob);
         localBlobs.current.delete(path);
         await update(next.id, { ocr_text: text });
@@ -416,12 +467,13 @@ export default function App() {
         console.warn('read text', e);
         ocrFailed.current.add(next.id);
         if (!next.image_path) update(next.id, { ocr_text: '' });
+        if (next.file_type === 'audio') flash(`Couldn't get the words from the recording: ${(e as Error).message}`);
       } finally {
         ocrBusy.current = false;
         setItems((xs) => [...xs]); // nudge the queue to look for the next one
       }
     })();
-  }, [session, items, update, flash, ask]);
+  }, [session, items, update, flash, ask, readVoice]);
 
   // Android share sheet → manifest share_target opens ./?share=1&title=…&text=…&url=…
   useEffect(() => {
@@ -563,7 +615,14 @@ export default function App() {
           {waiting > 0 && ` · ${waiting} waiting`}
         </div>
       )}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          {toast.msg}
+          {toast.action && (
+            <button className="toast-action" onClick={() => { const a = toast.action!; setToast(null); a.run(); }}>{toast.action.label}</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

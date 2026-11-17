@@ -5,4 +5,6 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: process.env.BASE ?? '/',
   plugins: [react()],
+  // Speech-to-text runs in a worker that loads its engine on demand, which needs ES-module workers.
+  worker: { format: 'es' },
 });

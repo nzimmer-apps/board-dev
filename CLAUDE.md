@@ -49,8 +49,12 @@ no-newline file through cmd instead: `cmd /c "gh secret set NAME -R nzimmer-apps
 - Repeating items: `items.repeat` (jsonb rule) + `web/src/repeat.ts`. `due_at` is the first occurrence; later ones are computed.
 - Parser (`web/src/parse.ts`): `parseAll` returns several items for "6 pm sundays, 7 pm monday and thursdays", and
   reads "notify 2 hours and 8 hours before" into notification times.
-- Attachments: voice notes and PDFs in the private `files` bucket (`web/src/files.ts`); text found in a screenshot,
-  PDF or voice note that contains a date opens `EventPrompt` rather than silently creating an event.
+- Attachments: voice notes and PDFs in the private `files` bucket (`web/src/files.ts`); text found in a screenshot
+  or PDF that contains a date opens `EventPrompt` rather than silently creating an event.
+- Voice notes and audio files are turned into text: live in Chrome/Edge while recording, otherwise afterwards on the
+  device with Whisper (`web/src/transcribe.ts` + `transcribe.worker.ts`, transformers.js, `Xenova/whisper-base.en`
+  downloaded from huggingface.co on first use, then cached). `web/src/voice.ts` reads the words: a day **and** a time
+  books the note straight onto the calendar (toast with Undo); a day alone opens `EventPrompt`.
 - Event links: `supabase/functions/unfurl` (edge function, signed-in users only) reads a page's title and schema.org
   event data. Deploy with `npx supabase functions deploy unfurl`. It identifies itself honestly and does not log in
   anywhere, so pages behind a login (many Facebook events) come back without a date and the app asks for one.
